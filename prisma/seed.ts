@@ -213,6 +213,42 @@ const CUSTOMERS = [
   },
 ];
 
+/**
+ * Ensures a role holds exactly the given permission keys, adding anything the
+ * registry gained since the role was created. Idempotent: re-running the seed
+ * never duplicates an assignment.
+ */
+async function syncRolePermissions(roleId: string, keys: string[]) {
+  const existing = await prisma.rolePermission.findMany({
+    where: { roleId },
+    select: { permissionId: true, permission: { select: { key: true } } },
+  });
+
+  const existingKeys = new Set(existing.map((row) => row.permission.key));
+  const missing = keys.filter((key) => !existingKeys.has(key));
+
+  if (missing.length === 0) {
+    return;
+  }
+
+  const permissions = await prisma.permission.findMany({
+    where: { key: { in: missing } },
+    select: { id: true },
+  });
+
+  await prisma.rolePermission.createMany({
+    data: permissions.map((permission) => ({
+      roleId,
+      permissionId: permission.id,
+    })),
+    skipDuplicates: true,
+  });
+
+  console.log(
+    `  • role ${roleId}: granted ${missing.length} new permission(s) — ${missing.join(', ')}`,
+  );
+}
+
 async function main() {
   const hashedPassword = await argon2.hash(DEV_PASSWORD);
 
@@ -250,6 +286,12 @@ async function main() {
       },
     },
   });
+
+  // Role permissions are only nested-created when the role is first inserted, so
+  // keys added to the registry after a database was seeded would otherwise never
+  // reach that database. This keeps the catalog authoritative on every run.
+  await syncRolePermissions(superAdminRole.id, PERMISSION_KEYS);
+  await syncRolePermissions(vendorRole.id, USER_ROLE_PERMISSIONS);
 
   const customerRole = await prisma.role.upsert({
     where: { name: 'customer' },

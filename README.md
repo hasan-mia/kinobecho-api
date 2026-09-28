@@ -47,6 +47,7 @@ earnings through a single unified ledger.
 - **Multi-vendor marketplace** — vendor applications, KYC approval, commission rates, suspension/reactivate
 - **Product catalog** — nested categories, variants with JSON attributes, wholesale/retail price tiers
 - **Cart & checkout** — a single cart is split into one order per vendor, grouped by `orderGroupId`
+- **Admin surface** — platform-wide order listing with filtering by status, channel, vendor, buyer and date range
 - **Unified ledger** — one `Transaction` table records payments, payouts, refunds and adjustments
 - **Payments** — Stripe, bKash, Nagad, SSLCommerz, each behind a common provider interface with signed webhooks
 - **Payouts** — vendors request settlement for delivered orders; admins approve or reject
@@ -94,9 +95,17 @@ earnings through a single unified ledger.
 creates one `Order` per vendor under a shared `orderGroupId`, reserves stock,
 and links settlement rows through `TransactionOrder`.
 
-**Money** — amounts are `Decimal(12,2)`, never floats. Every monetary movement
-writes a `Transaction` row with a direction (`CREDIT`/`DEBIT`) and a party pair
-(`CUSTOMER`/`VENDOR`/`PLATFORM`), so balances are always derivable.
+**The ledger** — every monetary movement writes a `Transaction` row with a
+direction (`CREDIT`/`DEBIT`) and a party pair (`CUSTOMER`/`VENDOR`/`PLATFORM`),
+so balances are always derivable from the transaction table alone.
+
+**Money on the wire** — amounts are `Decimal(12,2)` in PostgreSQL. Admin list
+endpoints convert them to 2-decimal strings before serialising; the client never
+sees a float. Never use JavaScript arithmetic on them.
+
+**Pagination** — every list endpoint returns the same envelope:
+`{ items, meta: { total, page, limit, totalPages } }`, defaulting to page 1 with
+20 per page and capping `limit` at 100.
 
 ---
 
@@ -143,7 +152,7 @@ kinobecho-api/
 │       ├── product/            # Products, variants, price tiers, images
 │       ├── storage/            # Local / S3 / GCS upload, signed URLs
 │       ├── cart/               # Live price resolution, stock and min-qty checks
-│       ├── orders/             # Checkout, OrderSplitterService, status workflow
+│       ├── orders/             # Checkout, OrderSplitterService, status workflow, admin list
 │       ├── coupons/            # Vendor + platform coupons, subtotal validation
 │       ├── payouts/            # Settlement requests and admin approval
 │       ├── reviews/            # Reviews, verified-purchase flag, moderation
@@ -153,6 +162,8 @@ kinobecho-api/
 │       ├── notification/       # Mail/push providers, BullMQ promo campaigns
 │       └── health/             # Liveness/readiness (DB, Redis)
 ├── test/
+│   ├── orders.service.spec.ts  # Unit specs (PrismaService mocked, no DB)
+│   └── auth.e2e-spec.ts        # E2E specs (need Postgres + Redis)
 ├── docker/
 ├── ecosystem.config.js         # PM2
 └── package.json
@@ -320,7 +331,7 @@ npm run prisma:studio           # browse data
 
 ## API Reference
 
-Base path: `/api/v1` · 17 tags · 71 paths · 90 operations
+Base path: `/api/v1` · 17 tags · 72 paths · 91 operations
 
 The list below is generated from the live OpenAPI document. Every endpoint,
 parameter and schema is documented at **`/api/v1/docs`**.
@@ -418,8 +429,54 @@ parameter and schema is documented at **`/api/v1/docs`**.
 | `POST` | `/orders/checkout` | Checkout — splits the cart into one order per vendor |
 | `GET` | `/orders` | Customer — own orders |
 | `GET` | `/orders/vendor` | Vendor — own orders |
+| `GET` | `/orders/admin` | Admin — every order across all vendors, filterable |
 | `GET` | `/orders/{id}` | Order detail (buyer, vendor or admin) |
 | `PATCH` | `/orders/{id}/status` | Vendor or admin — validated status transition |
+
+#### Admin order list
+
+`GET /orders/admin` requires `@Roles(ADMIN, SUPER_ADMIN)` and the
+`order:read:any` permission. Unlike the buyer and vendor lists it spans the whole
+platform and returns every `Decimal` money field as a 2-decimal **string**.
+
+| Query param | Type | Notes |
+|-------------|------|-------|
+| `page` | int | Default `1` |
+| `limit` | int | Default `20`, max `100` |
+| `status` | `OrderStatus` | Exact match |
+| `saleChannel` | `SaleChannel` | `RETAIL` or `WHOLESALE` |
+| `vendorId` | uuid | Filter to one vendor |
+| `buyerId` | uuid | Filter to one buyer |
+| `orderGroupId` | uuid | All orders from a single checkout |
+| `search` | string | Case-insensitive match on `orderNumber` |
+| `from` / `to` | ISO date | Inclusive `createdAt` range |
+
+Response uses the same envelope as every other list endpoint:
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "orderNumber": "ORD-20260928-8F3A1C",
+        "status": "SHIPPED",
+        "saleChannel": "RETAIL",
+        "subtotal": "3200.00",
+        "discountTotal": "320.00",
+        "shippingFee": "80.00",
+        "grandTotal": "2960.00",
+        "buyer": { "id": "…", "name": "Tanvir Hossain" },
+        "vendor": { "id": "…", "businessName": "Rahim Electronics" },
+        "items": [{ "unitPrice": "1250.00", "lineTotal": "2500.00" }]
+      }
+    ],
+    "meta": { "total": 137, "page": 1, "limit": 20, "totalPages": 7 }
+  }
+}
+```
+
+Non-admins receive `403 Insufficient permissions. Required: order:read:any`;
+an absent or invalid token receives `401`.
 
 ### Payments — `payments`
 
@@ -541,14 +598,34 @@ connection, so it scales across multiple instances without a second client.
 Permissions are **not** hardcoded. Roles and permissions live in the database and
 are enforced at request time.
 
-- `@Roles('ADMIN', 'SUPER_ADMIN')` — coarse role check
-- `@RequirePermissions('vendor.approve')` — fine-grained permission check
+- `@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)` — coarse role check
+- `@RequirePermissions('order:read:any')` — fine-grained permission check
 - `@Public()` — opt out of `JwtAuthGuard`; authorization still runs
 
-The full permission catalog is served by `GET /api/v1/roles/permissions/catalog`.
-Every permission change writes a `RoleAuditLog` row.
+Keys use the colon format (`resource:action`), with a `:own` / `:any` suffix when
+a permission is scoped to a single vendor. The catalog lives in
+`src/modules/roles/permissions.registry.ts` and is served by
+`GET /api/v1/roles/permissions/catalog`. Every permission change writes a
+`RoleAuditLog` row.
 
 **Roles:** `SUPER_ADMIN` · `ADMIN` · `VENDOR` · `VENDOR_STAFF` · `CUSTOMER`
+
+### Adding a permission
+
+1. Add the key to `PERMISSIONS` in `src/modules/roles/permissions.registry.ts`.
+   Add it to `USER_ROLE_PERMISSIONS` as well if vendors need it.
+2. Guard the route with `@RequirePermissions('<key>')`.
+3. Run `npm run prisma:seed`.
+
+`super_admin` receives every key in the catalog. The seed also backfills any
+missing assignment, so a database seeded before the key existed picks it up on
+the next run:
+
+```
+• role <id>: granted 1 new permission(s) — order:read:any
+```
+
+The backfill is idempotent — re-running the seed never duplicates an assignment.
 
 ---
 
@@ -561,6 +638,18 @@ npm run test:cov      # coverage
 npm run typecheck     # tsc --noEmit
 npm run lint:check    # eslint, no autofix
 npm run format:check  # prettier
+```
+
+Two kinds of spec live under `test/`, and both run under `npm test`:
+
+| Pattern | Kind | What it covers |
+|---------|------|----------------|
+| `*.spec.ts` | Unit | Service logic with `PrismaService` mocked — no database needed |
+| `*.e2e-spec.ts` | E2E | Full HTTP stack against a live database and Redis |
+
+```bash
+npm test                              # everything
+npx vitest run test/orders.service.spec.ts   # one file
 ```
 
 ---

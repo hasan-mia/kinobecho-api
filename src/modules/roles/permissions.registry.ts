@@ -24,6 +24,7 @@ export const PERMISSIONS = [
   { key: 'product:delete:any', description: "Delete any vendor's products" },
 
   // Order
+  { key: 'order:read:any', description: 'List and read any order across all vendors' },
   { key: 'order:update:own', description: "Update own vendor's orders" },
   { key: 'order:update:any', description: 'Update any order' },
 

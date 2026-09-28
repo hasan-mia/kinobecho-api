@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiOkResponse,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -17,7 +18,9 @@ import { UserRole } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import {
   CheckoutDto,
+  ListAdminOrdersQueryDto,
   ListOrdersQueryDto,
+  PaginatedOrdersResponseDto,
   UpdateOrderStatusDto,
 } from './dto/order.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -60,6 +63,17 @@ export class OrdersController {
     @Query() query: ListOrdersQueryDto,
   ) {
     return this.ordersService.findMyOrders(user, query);
+  }
+
+  @Get('admin')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @RequirePermissions('order:read:any')
+  @ApiOperation({
+    summary: 'List every order across all vendors and buyers (admin)',
+  })
+  @ApiOkResponse({ type: PaginatedOrdersResponseDto })
+  findAllForAdmin(@Query() query: ListAdminOrdersQueryDto) {
+    return this.ordersService.findAllOrders(query);
   }
 
   @Get(':id')
