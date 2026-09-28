@@ -1,0 +1,85 @@
+import * as Joi from 'joi';
+
+export const envValidationSchema = Joi.object({
+  NODE_ENV: Joi.string()
+    .valid('development', 'production', 'test')
+    .default('development'),
+  PORT: Joi.number().port().default(3000),
+  API_PREFIX: Joi.string().default('api'),
+  API_VERSION: Joi.string().default('1'),
+  PUBLIC_URL: Joi.string().uri().optional(),
+  CORS_ORIGIN: Joi.string().uri().required(),
+  SWAGGER_ENABLED: Joi.boolean().default(false),
+
+  DATABASE_URL: Joi.string().required(),
+  DATABASE_PROVIDER: Joi.string()
+    .valid('postgresql', 'mysql', 'mongodb')
+    .default('postgresql'),
+
+  REDIS_HOST: Joi.string().hostname().required(),
+  REDIS_PORT: Joi.number().port().default(6379),
+  REDIS_PASSWORD: Joi.string().allow('').optional(),
+  REDIS_DB: Joi.number().integer().min(0).max(15).default(0),
+
+  JWT_ACCESS_SECRET: Joi.string().min(32).required(),
+  JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
+  JWT_REFRESH_SECRET: Joi.string().min(32).required(),
+  JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+
+  STRIPE_SECRET_KEY: Joi.string().required(),
+  STRIPE_WEBHOOK_SECRET: Joi.string().required(),
+  STRIPE_PUBLISHABLE_KEY: Joi.string().required(),
+
+  BKASH_APP_KEY: Joi.string().allow('').optional(),
+  BKASH_APP_SECRET: Joi.string().allow('').optional(),
+  BKASH_USERNAME: Joi.string().allow('').optional(),
+  BKASH_PASSWORD: Joi.string().allow('').optional(),
+  BKASH_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+
+  NAGAD_MERCHANT_ID: Joi.string().allow('').optional(),
+  NAGAD_API_KEY: Joi.string().allow('').optional(),
+  NAGAD_API_SECRET: Joi.string().allow('').optional(),
+  NAGAD_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+
+  SSLCOMMERZ_STORE_ID: Joi.string().allow('').optional(),
+  SSLCOMMERZ_STORE_PASSWORD: Joi.string().allow('').optional(),
+  SSLCOMMERZ_API_KEY: Joi.string().allow('').optional(),
+  SSLCOMMERZ_API_SECRET: Joi.string().allow('').optional(),
+  SSLCOMMERZ_SANDBOX: Joi.boolean().default(true),
+
+  STORAGE_DRIVER: Joi.string().valid('local', 's3', 'gcs').default('local'),
+  LOCAL_UPLOAD_PATH: Joi.string().default('uploads'),
+  LOCAL_ASSET_URL: Joi.string().default('/uploads'),
+
+  AWS_S3_BUCKET: Joi.string().allow('').optional(),
+  AWS_REGION: Joi.string().allow('').optional(),
+  AWS_ACCESS_KEY_ID: Joi.string().allow('').optional(),
+  AWS_SECRET_ACCESS_KEY: Joi.string().allow('').optional(),
+  AWS_S3_FORCE_PATH_STYLE: Joi.boolean().default(false),
+
+  GCP_PROJECT_ID: Joi.string().allow('').optional(),
+  GCP_BUCKET: Joi.string().allow('').optional(),
+  GCP_CREDENTIALS_BASE64: Joi.string().allow('').optional(),
+
+  MAIL_DRIVER: Joi.string().valid('smtp', 'twilio').default('smtp'),
+  MAIL_FROM: Joi.string().email().default('no-reply@kinobecho.com'),
+  SMTP_HOST: Joi.string().hostname().allow('').optional(),
+  SMTP_PORT: Joi.number().port().default(587),
+  SMTP_USER: Joi.string().allow('').optional(),
+  SMTP_PASS: Joi.string().allow('').optional(),
+  SMTP_SECURE: Joi.boolean().default(false),
+  SENDGRID_API_KEY: Joi.string().allow('').optional(),
+
+  FCM_SERVICE_ACCOUNT_BASE64: Joi.string().allow('').optional(),
+  FCM_PROJECT_ID: Joi.string().allow('').optional(),
+
+  THROTTLE_TTL: Joi.number().integer().positive().default(60000),
+  THROTTLE_LIMIT: Joi.number().integer().positive().default(100),
+  THROTTLE_AUTH_TTL: Joi.number().integer().positive().default(900000),
+  THROTTLE_AUTH_LIMIT: Joi.number().integer().positive().default(5),
+
+  LOG_LEVEL: Joi.string()
+    .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace')
+    .default('info'),
+  LOG_PRETTY: Joi.boolean().default(false),
+}).unknown(true);

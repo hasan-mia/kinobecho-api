@@ -1,0 +1,2 @@
+export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');
+export const STORAGE_DRIVER_NAME = Symbol('STORAGE_DRIVER_NAME');

@@ -1,0 +1,11 @@
+{
+  "rootDir": ".",
+  "testRegex": ".e2e-spec.ts$",
+  "testEnvironment": "node",
+  "extensionsToTreatAsEsm": [".ts"],
+  "transform": {
+    "^.+\\.(js|ts|tsx|jsx)$": "babel-jest"
+  },
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "transformIgnorePatterns": []
+}

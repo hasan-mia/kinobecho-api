@@ -1,0 +1,2 @@
+export const MAIL_PROVIDER = 'MAIL_PROVIDER';
+export const PUSH_PROVIDER = 'PUSH_PROVIDER';
