@@ -144,6 +144,13 @@ export const envValidationSchema = Joi.object({
   OTP_REQUEST_LIMIT: Joi.number().integer().positive().default(3),
   OTP_REQUEST_WINDOW_SECONDS: Joi.number().integer().positive().default(600),
 
+  // Image pipeline / CDN
+  // When set, public URLs become CDN_BASE_URL + storage key.
+  CDN_BASE_URL: Joi.string().uri().allow('').optional(),
+  IMAGE_MAX_BYTES: Joi.number().integer().positive().default(5242880),
+  IMAGE_MAX_DIMENSION: Joi.number().integer().positive().default(6000),
+  IMAGE_WEBP_QUALITY: Joi.number().integer().min(1).max(100).default(80),
+
   THROTTLE_TTL: Joi.number().integer().positive().default(60000),
   THROTTLE_LIMIT: Joi.number().integer().positive().default(100),
   THROTTLE_AUTH_TTL: Joi.number().integer().positive().default(900000),

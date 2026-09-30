@@ -38,19 +38,21 @@ export class ProductImageService {
     const created: Prisma.ProductImageCreateManyInput[] = [];
 
     for (const [index, file] of files.entries()) {
-      const storageFile = await this.storage.uploadFile(
-        file,
-        buildStoragePath('PRODUCT_IMAGE', product.id, file),
-        {
-          ownerType: 'PRODUCT_IMAGE',
-          ownerId: product.id,
-          uploadedById: user.id,
-        },
-      );
+      // One call produces the 1200/600/200 WebP set and registers each as a
+      // StorageFile row, so a product never points at a partially uploaded set.
+      const uploaded = await this.storage.uploadImageVariants(file, {
+        ownerType: 'PRODUCT_IMAGE',
+        ownerId: product.id,
+        uploadedById: user.id,
+      });
 
       created.push({
         productId: product.id,
-        url: storageFile.url,
+        url: uploaded.url,
+        thumbUrl: uploaded.thumbUrl,
+        mediumUrl: uploaded.mediumUrl,
+        width: uploaded.width,
+        height: uploaded.height,
         isPrimary: existing === 0 && index === 0,
         sortOrder: existing + index,
       });
@@ -101,7 +103,13 @@ export class ProductImageService {
       throw new NotFoundException('Image not found');
     }
 
-    await this.removeStoredFile(image.url);
+    // All three variants are storage objects; leaving the 200px and 600px copies
+    // behind would leak objects for every image ever removed.
+    await this.removeStoredFiles([
+      image.url,
+      image.mediumUrl,
+      image.thumbUrl,
+    ]);
 
     await this.prisma.productImage.delete({ where: { id: image.id } });
 
@@ -123,18 +131,24 @@ export class ProductImageService {
     return { message: 'Image deleted' };
   }
 
-  private async removeStoredFile(url: string) {
-    const stored = await this.prisma.storageFile.findFirst({
-      where: { url },
-      select: { id: true },
-    });
+  private async removeStoredFiles(urls: (string | null)[]) {
+    for (const url of urls) {
+      if (!url) {
+        continue;
+      }
 
-    if (stored) {
-      await this.storage.deleteFile(stored.id);
-      return;
+      const stored = await this.prisma.storageFile.findFirst({
+        where: { url },
+        select: { id: true },
+      });
+
+      if (stored) {
+        await this.storage.deleteFile(stored.id);
+        continue;
+      }
+
+      this.logger.warn(`No StorageFile row found for ${url}`);
     }
-
-    this.logger.warn(`No StorageFile row found for ${url}`);
   }
 
   private async assertOwnProduct(

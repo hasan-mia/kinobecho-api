@@ -9,6 +9,8 @@ import { S3StorageProvider } from './providers/s3.provider';
 import { GcsStorageProvider } from './providers/gcs.provider';
 import { STORAGE_DRIVER_NAME, STORAGE_PROVIDER } from './storage.constants';
 import { StorageProvider } from './interfaces/storage-provider.interface';
+import { StorageUrlService } from './storage-url.service';
+import { ImageProcessorService } from './image-processor.service';
 
 function resolveDriver(configService: ConfigService): string {
   return (
@@ -50,8 +52,15 @@ function resolveDriver(configService: ConfigService): string {
         }
       },
     },
+    StorageUrlService,
+    ImageProcessorService,
     StorageService,
   ],
-  exports: [StorageService, STORAGE_PROVIDER],
+  exports: [
+    StorageService,
+    StorageUrlService,
+    ImageProcessorService,
+    STORAGE_PROVIDER,
+  ],
 })
 export class StorageModule {}

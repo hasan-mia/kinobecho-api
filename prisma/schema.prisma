@@ -416,7 +416,16 @@ model ProductImage {
   id        String   @id @default(uuid())
   productId String
   product   Product  @relation("ProductToProductImage_1", fields: [productId], references: [id], onDelete: Cascade)
+  /// The 1200px ("large") WebP variant.
   url       String
+  /// 200px WebP variant. Null on rows created before the image pipeline.
+  thumbUrl  String?
+  /// 600px WebP variant. Null on rows created before the image pipeline.
+  mediumUrl String?
+  /// Intrinsic dimensions of the source image, so the client can reserve layout
+  /// space and avoid a reflow while the bytes load.
+  width     Int?
+  height    Int?
   isPrimary Boolean  @default(false)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())

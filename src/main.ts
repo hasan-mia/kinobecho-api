@@ -200,7 +200,15 @@ async function bootstrap() {
       '/uploads'
     ).replace(/\/$/, '');
 
-    app.useStaticAssets(path.resolve(uploadPath), { prefix: assetPrefix });
+    app.useStaticAssets(path.resolve(uploadPath), {
+      prefix: assetPrefix,
+      // Storage keys embed a content hash, so a given URL always returns the
+      // same bytes and can be cached forever. Without this, a re-upload would be
+      // invisible to clients holding a cached copy.
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      },
+    });
     logger.log(`Serving local uploads from ${path.resolve(uploadPath)}`);
   }
 

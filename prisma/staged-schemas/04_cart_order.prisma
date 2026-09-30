@@ -354,6 +354,10 @@ model ProductImage {
   productId String
   product Product @relation("ProductToProductImage_1", fields: [productId], references: [id], onDelete: Cascade)
   url       String
+  thumbUrl  String?
+  mediumUrl String?
+  width     Int?
+  height    Int?
   isPrimary Boolean  @default(false)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())

@@ -281,6 +281,11 @@ npm run start:dev
 | `OTP_TTL_SECONDS` | Lifetime of an OTP code | `300` |
 | `OTP_MAX_ATTEMPTS` | Wrong-code attempts before a code is invalidated | `5` |
 | `OTP_REQUEST_LIMIT` / `OTP_REQUEST_WINDOW_SECONDS` | Per-phone OTP requests allowed per window | `3` / `600` |
+| **Images / CDN** |||
+| `CDN_BASE_URL` | When set, every public URL is `CDN_BASE_URL` + storage key | — |
+| `IMAGE_MAX_BYTES` | Reject uploads larger than this | `5242880` (5MB) |
+| `IMAGE_MAX_DIMENSION` | Reject images wider/taller than this | `6000` |
+| `IMAGE_WEBP_QUALITY` | WebP encoder quality for generated variants | `80` |
 | **Shipping / couriers** |||
 | `SHIPPING_DEFAULT_ZONE_NAME` | Zone used when no district matches | `DEFAULT` |
 | `STEADFAST_BASE_URL` | Steadfast API root | `https://portal.packzy.com/api/v1` |

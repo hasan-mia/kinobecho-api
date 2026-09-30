@@ -112,6 +112,14 @@ export const storageConfig = registerAs('storage', () => ({
   driver: process.env.STORAGE_DRIVER ?? 'local',
   localUploadPath: process.env.LOCAL_UPLOAD_PATH ?? 'uploads',
   localAssetUrl: process.env.LOCAL_ASSET_URL ?? '/uploads',
+  // When set, every public URL is built as CDN_BASE_URL + key. Unset means the
+  // provider's own URL scheme is used (local /uploads, S3 or GCS host).
+  cdnBaseUrl: process.env.CDN_BASE_URL || null,
+  image: {
+    maxBytes: Number(process.env.IMAGE_MAX_BYTES ?? 5 * 1024 * 1024),
+    maxDimension: Number(process.env.IMAGE_MAX_DIMENSION ?? 6000),
+    quality: Number(process.env.IMAGE_WEBP_QUALITY ?? 80),
+  },
   s3: {
     bucket: process.env.AWS_S3_BUCKET,
     region: process.env.AWS_REGION,
