@@ -125,6 +125,32 @@ enum DiscountType {
   FIXED
 }
 
+/// Where a banner is rendered. `POPUP` is shown at most once per browsing
+/// session; the other placements are slot-based and ordered by `sortOrder`.
+enum BannerPlacement {
+  HOME_HERO
+  HOME_MID
+  CATEGORY_TOP
+  POPUP
+}
+
+/// What a banner click navigates to. `NONE` makes the banner non-clickable,
+/// which is why it is a first-class value rather than an empty link.
+enum BannerLinkType {
+  PRODUCT
+  CATEGORY
+  VENDOR
+  URL
+  NONE
+}
+
+enum HomeSectionType {
+  PRODUCT_LIST
+  CATEGORY_LIST
+  BANNER
+  FLASH_SALE
+}
+
 enum ChatThreadType {
   BUYER_VENDOR
   BUYER_SUPPORT
@@ -1082,4 +1108,57 @@ model WebhookEvent {
 
   @@index([provider, type])
   @@map("webhook_events")
+}
+
+/// A curated storefront image.
+///
+/// `startsAt`/`endsAt` are nullable rather than defaulted: a null bound means
+/// "unbounded in that direction", so an evergreen banner is two nulls and a
+/// scheduled one only carries the bound it needs. `isActive` is the kill
+/// switch that does not require editing the window.
+model Banner {
+  id             String          @id @default(uuid())
+  title          String
+  imageUrl       String
+  /// Narrower creative for small screens, served from the same B5 upload.
+  mobileImageUrl String?
+  linkType       BannerLinkType  @default(NONE)
+  /// Product / category / vendor id, or an absolute URL when linkType is URL.
+  /// Ignored when linkType is NONE.
+  linkValue      String?
+  placement      BannerPlacement
+  sortOrder      Int             @default(0)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([placement, isActive, sortOrder])
+  @@index([isActive, startsAt, endsAt])
+  @@map("banners")
+}
+
+/// One ordered block on the storefront home page.
+///
+/// `config` stays a JSON blob because each `type` reads a different shape
+/// (product ids, category ids, banner ids, flash-sale window) and normalising
+/// them into columns would mean a wide sparse table plus a migration per new
+/// block type. The shape is validated on write and documented on the type.
+model HomeSection {
+  id        String          @id @default(uuid())
+  title     String
+  type      HomeSectionType
+  /// PRODUCT_LIST/FLASH_SALE: { productIds: string[] }
+  /// CATEGORY_LIST: { categoryIds: string[] }
+  /// BANNER: { bannerIds: string[] }
+  /// FLASH_SALE also accepts { endsAt: ISO-8601 }
+  config    Json
+  sortOrder Int             @default(0)
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("home_sections")
 }

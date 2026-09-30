@@ -57,6 +57,9 @@ export const PERMISSIONS = [
   // Brands
   { key: 'brand:manage', description: 'Create, edit and deactivate brands' },
 
+  // CMS
+  { key: 'cms:manage', description: 'Manage storefront banners and home sections' },
+
   // Returns
   { key: 'return:read', description: 'Read every return request platform-wide' },
   { key: 'return:refund', description: 'Issue refunds for return requests' },

@@ -165,6 +165,7 @@ kinobecho-api/
 │       ├── brand/              # Brand catalogue (admin CRUD)
 │       ├── wishlist/           # Saved products, live price and stock
 │       ├── questions/          # Product Q&A with moderation
+│       ├── cms/                # Storefront banners and home sections
 │       ├── chat/               # Socket.io gateway + REST, Redis adapter
 │       ├── notification/       # Mail/push providers, BullMQ promo campaigns
 │       └── health/             # Liveness/readiness (DB, Redis)
@@ -675,6 +676,53 @@ moderation pass would hide a question the seller is willing to stand behind.
 Answers are marked `isVendor` so the UI can tell the seller's own voice from
 platform support. The vendor is notified on a new question, the asker on a new
 answer; a notification failure never rolls back the question or answer.
+
+### CMS — `cms`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/cms/home` | Public — live banners plus sections with resolved cards |
+| `GET` | `/cms/banners` | Admin (`cms:manage`) — includes inactive and scheduled |
+| `GET` | `/cms/banners/{id}` | Admin (`cms:manage`) |
+| `POST` | `/cms/banners` | Admin (`cms:manage`) — create |
+| `PATCH` `DELETE` | `/cms/banners/{id}` | Admin (`cms:manage`) |
+| `PATCH` | `/cms/banners/{placement}/reorder` | Admin (`cms:manage`) — ids in display order |
+| `POST` | `/cms/banners/{id}/image` | Admin (`cms:manage`) — upload a creative |
+| `GET` `POST` | `/cms/sections` | Admin (`cms:manage`) — list, create |
+| `GET` `PATCH` `DELETE` | `/cms/sections/{id}` | Admin (`cms:manage`) |
+| `PATCH` | `/cms/sections/reorder` | Admin (`cms:manage`) — ids in display order |
+
+`GET /cms/home` is cached in Redis for two minutes and every admin write drops
+the key, so the freshness model is "recompute on change", with the TTL only as a
+net for a missed invalidation. An invalidation that fails is logged rather than
+thrown: a stale home page for one TTL is recoverable, failing an admin's save
+because Redis blinked is not.
+
+A banner's `startsAt`/`endsAt` are nullable means *unbounded*, so an evergreen
+banner is two nulls and a scheduled one carries only the bound it needs. The
+window is queried as two `OR` clauses rather than a negated range, so Postgres
+can use the `(isActive, startsAt, endsAt)` index. The admin list deliberately
+shows banners outside their window — an operator needs to see what is queued
+before it goes live.
+
+Sections carry a JSON `config` whose shape depends on `type`: `{ productIds }`
+for `PRODUCT_LIST` and `FLASH_SALE`, `{ categoryIds }` for `CATEGORY_LIST`,
+`{ bannerIds }` for `BANNER`, plus an optional `endsAt` countdown for
+`FLASH_SALE`. It stays a blob because each type reads a different shape and
+normalising them into columns would mean a wide sparse table plus a migration
+per new block type. Ids are capped at 50 per section because the whole payload
+is cached and served on every visit. Referenced products that are later archived
+drop out of the resolved response rather than rendering as broken cards, so
+deactivating a product empties its slot without an admin editing the section.
+
+Reorder takes the complete id list rather than one `sortOrder` patch at a time:
+the client already knows the full order it saw, so one round trip beats N and
+the result does not depend on arrival order. Ids the client omitted are appended
+after the submitted ones so no row keeps a stale index.
+
+Banner links are validated on write: `NONE` clears `linkValue` rather than
+leaving a dangling target the storefront would still follow, and a `URL` link
+must be `http`/`https` — this is stored content handed straight to an `href`.
 
 ### Reviews — `reviews`
 

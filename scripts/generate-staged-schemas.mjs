@@ -86,6 +86,8 @@ const STAGE_OF_MODEL = {
   WishlistItem: 14,
   ProductQuestion: 14,
   ProductAnswer: 14,
+  Banner: 15,
+  HomeSection: 15,
 };
 
 const STAGE_FILES = [
@@ -103,6 +105,7 @@ const STAGE_FILES = [
   [12, '12_returns', 'Return requests / return items'],
   [13, '13_search', 'Brands + search-ready product aggregates'],
   [14, '14_engagement', 'Wishlist + product Q&A'],
+  [15, '15_cms', 'CMS banners + home sections'],
 ];
 
 const SCALARS = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt']);
