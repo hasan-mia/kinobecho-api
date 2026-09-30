@@ -145,6 +145,35 @@ export const mailConfig = registerAs('mail', () => ({
   },
 }));
 
+// Outbound SMS. `driver` picks the implementation bound to SMS_PROVIDER:
+// `twilio` for Twilio, `http` for a local Bangladeshi gateway whose request
+// shape is described by `http.template`.
+export const smsConfig = registerAs('sms', () => ({
+  driver: process.env.SMS_DRIVER ?? 'http',
+  twilio: {
+    accountSid: process.env.TWILIO_ACCOUNT_SID,
+    authToken: process.env.TWILIO_AUTH_TOKEN,
+    from: process.env.TWILIO_SMS_FROM,
+  },
+  http: {
+    url: process.env.SMS_HTTP_URL,
+    apiKey: process.env.SMS_HTTP_API_KEY,
+    senderId: process.env.SMS_HTTP_SENDER_ID,
+    // Placeholders substituted by the HTTP provider; see SMS_HTTP_TEMPLATE.
+    template: process.env.SMS_HTTP_TEMPLATE,
+  },
+}));
+
+// One-time passcodes. The rate limit is deliberately separate from the Nest
+// throttler: that one is per-IP, this one is per-phone, so a single attacker
+// cannot exhaust one victim's SMS quota from many addresses.
+export const otpConfig = registerAs('otp', () => ({
+  ttlSeconds: parseInt(process.env.OTP_TTL_SECONDS ?? '300', 10),
+  maxAttempts: parseInt(process.env.OTP_MAX_ATTEMPTS ?? '5', 10),
+  requestLimit: parseInt(process.env.OTP_REQUEST_LIMIT ?? '3', 10),
+  requestWindowSeconds: parseInt(process.env.OTP_REQUEST_WINDOW_SECONDS ?? '600', 10),
+}));
+
 export const throttleConfig = registerAs('throttle', () => ({
   ttl: parseInt(process.env.THROTTLE_TTL ?? '60000', 10),
   limit: parseInt(process.env.THROTTLE_LIMIT ?? '100', 10),

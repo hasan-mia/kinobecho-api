@@ -127,6 +127,23 @@ export const envValidationSchema = Joi.object({
   FCM_SERVICE_ACCOUNT_BASE64: Joi.string().allow('').optional(),
   FCM_PROJECT_ID: Joi.string().allow('').optional(),
 
+  // Outbound SMS. Twilio creds are only required when SMS_DRIVER=twilio, and the
+  // HTTP gateway fields only when SMS_DRIVER=http, so each driver is validated
+  // as a coherent set rather than all-or-nothing.
+  SMS_DRIVER: Joi.string().valid('twilio', 'http').default('http'),
+  TWILIO_ACCOUNT_SID: Joi.string().allow('').optional(),
+  TWILIO_AUTH_TOKEN: Joi.string().allow('').optional(),
+  TWILIO_SMS_FROM: Joi.string().allow('').optional(),
+  SMS_HTTP_URL: Joi.string().uri().allow('').optional(),
+  SMS_HTTP_API_KEY: Joi.string().allow('').optional(),
+  SMS_HTTP_SENDER_ID: Joi.string().allow('').optional(),
+  SMS_HTTP_TEMPLATE: Joi.string().allow('').optional(),
+
+  OTP_TTL_SECONDS: Joi.number().integer().positive().default(300),
+  OTP_MAX_ATTEMPTS: Joi.number().integer().positive().default(5),
+  OTP_REQUEST_LIMIT: Joi.number().integer().positive().default(3),
+  OTP_REQUEST_WINDOW_SECONDS: Joi.number().integer().positive().default(600),
+
   THROTTLE_TTL: Joi.number().integer().positive().default(60000),
   THROTTLE_LIMIT: Joi.number().integer().positive().default(100),
   THROTTLE_AUTH_TTL: Joi.number().integer().positive().default(900000),

@@ -58,6 +58,24 @@ export class RedisCacheService implements Cache, OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * INCR then, only on the call that created the key (result === 1), set the TTL.
+   *
+   * Redis has no combined INCR+EXPIRE, and doing it in two round trips would let
+   * a crash in between leave a counter that never expires. The `result === 1`
+   * check keeps the window anchored to the first hit rather than being extended
+   * by later ones, so a caller cannot keep a slot alive by polling.
+   */
+  async incrWithTtl(key: string, ttl?: number): Promise<number> {
+    const result = await this.client.incr(key);
+
+    if (result === 1 && ttl && ttl > 0) {
+      await this.client.expire(key, ttl);
+    }
+
+    return result;
+  }
+
   async onModuleDestroy() {
     await this.client.quit();
   }

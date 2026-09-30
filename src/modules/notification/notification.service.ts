@@ -10,6 +10,8 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../database/prisma.service';
 import { MAIL_PROVIDER, PUSH_PROVIDER } from './notification.constants';
+import { SMS_PROVIDER } from './sms.constants';
+import { SmsProvider } from './interfaces/sms-provider.interface';
 import { MailProvider } from './interfaces/mail-provider.interface';
 import { PushProvider } from './interfaces/push-provider.interface';
 import { renderTemplate } from './templates/template.util';
@@ -36,6 +38,7 @@ export class NotificationService {
     private readonly configService: ConfigService,
     @Inject(MAIL_PROVIDER) private readonly mailProvider: MailProvider,
     @Inject(PUSH_PROVIDER) private readonly pushProvider: PushProvider,
+    @Inject(SMS_PROVIDER) private readonly smsProvider: SmsProvider,
     @InjectQueue('promotion-mail') private readonly promotionQueue: Queue,
   ) {}
 
@@ -83,6 +86,64 @@ export class NotificationService {
         },
       });
       this.logger.error(`Transactional email failed to ${to}: ${errorMessage}`);
+      throw err;
+    }
+  }
+
+  /**
+   * Sends an SMS and records the attempt as a `NotificationLog` row, mirroring
+   * `sendTransactionalEmail`: one row per send, created QUEUED, then moved to
+   * SENT or FAILED.
+   *
+   * `userId` is optional because an OTP may be requested for a phone that has no
+   * user yet — the log is still written so delivery problems are diagnosable.
+   * Throws after recording FAILED so the caller can decide what to do; OTP
+   * delivery is not something to fail silently.
+   */
+  async sendTransactionalSms(
+    to: string,
+    text: string,
+    templateKey: string,
+    payload: Record<string, string | number> = {},
+    userId?: string | null,
+  ) {
+    const log = await this.prisma.notificationLog.create({
+      data: {
+        channel: NotificationChannel.SMS,
+        status: NotificationStatus.QUEUED,
+        userId: userId ?? null,
+        recipient: to,
+        templateKey,
+        payload: payload as Prisma.InputJsonValue,
+      },
+    });
+
+    try {
+      const result = await this.smsProvider.sendSms(to, text);
+
+      await this.prisma.notificationLog.update({
+        where: { id: log.id },
+        data: {
+          status: NotificationStatus.SENT,
+          sentAt: new Date(),
+          providerRef: result.providerRef,
+        },
+      });
+
+      this.logger.log(`Transactional SMS sent to ${to}, logId: ${log.id}`);
+      return { success: true, logId: log.id };
+    } catch (err) {
+      const errorMessage = (err as Error).message;
+
+      await this.prisma.notificationLog.update({
+        where: { id: log.id },
+        data: {
+          status: NotificationStatus.FAILED,
+          error: errorMessage,
+        },
+      });
+
+      this.logger.error(`Transactional SMS failed to ${to}: ${errorMessage}`);
       throw err;
     }
   }

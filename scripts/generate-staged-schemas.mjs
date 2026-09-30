@@ -77,6 +77,8 @@ const STAGE_OF_MODEL = {
   ShippingRate: 10,
   Shipment: 10,
   ShipmentEvent: 10,
+
+  OtpCode: 11,
 };
 
 const STAGE_FILES = [
@@ -90,6 +92,7 @@ const STAGE_FILES = [
   [8, '08_storage_notification', 'Storage / Notifications / Campaigns'],
   [9, '09_infra', 'Infra (webhook, queue, session)'],
   [10, '10_shipping', 'Shipping zones / rates / shipments'],
+  [11, '11_otp', 'OTP codes'],
 ];
 
 const SCALARS = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt']);

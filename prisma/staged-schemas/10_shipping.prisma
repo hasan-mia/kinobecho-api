@@ -177,11 +177,6 @@ enum ShipmentStatus {
   CANCELLED
 }
 
-enum MailDriver {
-  SMTP
-  TWILIO
-}
-
 // --- MODELS ---
 
 model Address {

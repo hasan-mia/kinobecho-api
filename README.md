@@ -273,6 +273,14 @@ npm run start:dev
 | `COD_ENABLED` | Master switch for cash on delivery | `true` |
 | `COD_MAX_AMOUNT` | Max order total (BDT) payable on delivery | `20000` |
 | `ORDER_PAYMENT_TTL_MINUTES` | Minutes an unpaid online order stays payable before auto-cancellation (COD exempt) | `30` |
+| **SMS / OTP** |||
+| `SMS_DRIVER` | Outbound SMS implementation: `http` or `twilio` | `http` |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_SMS_FROM` | Twilio credentials (only read when `SMS_DRIVER=twilio`) | — |
+| `SMS_HTTP_URL` / `SMS_HTTP_API_KEY` / `SMS_HTTP_SENDER_ID` | Local BD gateway (only read when `SMS_DRIVER=http`) | — |
+| `SMS_HTTP_TEMPLATE` | JSON request body template; placeholders `{to}` `{text}` `{api_key}` `{sender_id}` | see `.env.example` |
+| `OTP_TTL_SECONDS` | Lifetime of an OTP code | `300` |
+| `OTP_MAX_ATTEMPTS` | Wrong-code attempts before a code is invalidated | `5` |
+| `OTP_REQUEST_LIMIT` / `OTP_REQUEST_WINDOW_SECONDS` | Per-phone OTP requests allowed per window | `3` / `600` |
 | **Shipping / couriers** |||
 | `SHIPPING_DEFAULT_ZONE_NAME` | Zone used when no district matches | `DEFAULT` |
 | `STEADFAST_BASE_URL` | Steadfast API root | `https://portal.packzy.com/api/v1` |
