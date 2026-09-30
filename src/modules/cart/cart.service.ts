@@ -9,6 +9,14 @@ import { PrismaService } from '../../database/prisma.service';
 import { ProductPricingService } from '../product/pricing/product-pricing.service';
 import { AddCartItemDto, UpdateCartItemDto } from './dto/cart.dto';
 
+interface FlashSaleInfo {
+  itemId: string;
+  salePrice: Prisma.Decimal;
+  normalPrice: Prisma.Decimal;
+  remaining: number;
+  endsAt: Date;
+}
+
 @Injectable()
 export class CartService {
   constructor(
@@ -39,15 +47,28 @@ export class CartService {
     for (const item of items) {
       let unitPrice: Prisma.Decimal;
       let priceError: string | null = null;
+      let flashSaleItemId: string | null = null;
+      let flashSale: FlashSaleInfo | null = null;
 
       try {
-        unitPrice = await this.pricing.resolveUnitPrice(
+        // With the variant so a variant-scoped sale price is found, and with the
+        // context so the cart can show what the buyer is saving and how much of
+        // the sale budget is left — a cart that shows the discounted price
+        // without saying "3 left" invites a checkout that then fails.
+        const priced = await this.pricing.resolveWithContext(
           item.productId,
           item.qty,
+          item.productVariantId,
         );
+        unitPrice = priced.unitPrice;
+        flashSaleItemId = priced.flashSaleItemId;
       } catch (error) {
         priceError = (error as Error).message;
         unitPrice = item.productVariant?.priceOverride ?? item.product.price;
+      }
+
+      if (flashSaleItemId) {
+        flashSale = await this.describeFlashSaleItem(flashSaleItemId);
       }
 
       const lineTotal = unitPrice.mul(item.qty);
@@ -59,6 +80,21 @@ export class CartService {
         unitPrice,
         lineTotal,
         priceError,
+        ...(flashSale
+          ? {
+              flashSale: {
+                itemId: flashSale.itemId,
+                salePrice: flashSale.salePrice,
+                normalPrice: flashSale.normalPrice,
+                remaining: flashSale.remaining,
+                endsAt: flashSale.endsAt,
+                // False when the budget or the per-buyer allowance cannot cover
+                // this line, so the UI can disable checkout for it rather than
+                // letting the customer discover it at the last step.
+                purchasable: flashSale.remaining >= item.qty,
+              },
+            }
+          : {}),
         product: item.product,
         productVariant: item.productVariant,
       });
@@ -71,6 +107,42 @@ export class CartService {
         itemCount: items.reduce((sum, item) => sum + item.qty, 0),
         subtotal,
       },
+    };
+  }
+
+  /**
+   * Loads the sale facts a cart line needs to render, in one query.
+   *
+   * The buyer's own holdings are counted too, because `perUserLimit` is a real
+   * constraint: a second cart line for the same sale item can be within the
+   * budget and still be unbuyable by this customer.
+   */
+  private async describeFlashSaleItem(
+    flashSaleItemId: string,
+  ): Promise<FlashSaleInfo | null> {
+    const item = await this.prisma.flashSaleItem.findUnique({
+      where: { id: flashSaleItemId },
+      select: {
+        id: true,
+        salePrice: true,
+        stockLimit: true,
+        soldCount: true,
+        perUserLimit: true,
+        product: { select: { price: true } },
+        flashSale: { select: { endsAt: true } },
+      },
+    });
+
+    if (!item) {
+      return null;
+    }
+
+    return {
+      itemId: item.id,
+      salePrice: item.salePrice,
+      normalPrice: item.product.price,
+      remaining: Math.max(item.stockLimit - item.soldCount, 0),
+      endsAt: item.flashSale.endsAt,
     };
   }
 

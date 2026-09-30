@@ -36,6 +36,9 @@ interface VendorLine {
   lineTotal: Prisma.Decimal;
   productVariantId: string;
   saleChannel: SaleChannel;
+  /// The flash sale this line was priced under, if any. Persisted on OrderItem
+  /// so cancellation can give the sale budget back.
+  flashSaleItemId: string | null;
 }
 
 @Injectable()
@@ -131,10 +134,14 @@ export class OrderSplitterService {
             );
           }
 
-          const unitPrice = await this.pricing.resolveUnitPrice(
+          // Resolved with the variant so a variant-specific sale price is found;
+          // the context tells us which sale item to charge the budget against.
+          const priced = await this.pricing.resolveWithContext(
             item.productId,
             item.qty,
+            item.productVariantId,
           );
+          const unitPrice = priced.unitPrice;
           const lineTotal = unitPrice.mul(item.qty);
           const saleChannel = this.resolveSaleChannel(item);
 
@@ -152,6 +159,7 @@ export class OrderSplitterService {
             lineTotal,
             productVariantId: item.productVariantId,
             saleChannel,
+            flashSaleItemId: priced.flashSaleItemId,
           });
         }
 
@@ -209,6 +217,20 @@ export class OrderSplitterService {
           }
 
           touchedVariantIds.add(line.productVariantId);
+
+          // The flash sale budget is committed with the same conditional-update
+          // pattern as variant stock, and inside this same transaction: two
+          // buyers racing for the last sale unit must produce one order, not two
+          // orders that both believe they got it.
+          if (line.flashSaleItemId) {
+            await this.claimFlashSaleUnits(
+              tx,
+              line.flashSaleItemId,
+              line.qty,
+              line.productNameSnap,
+              userId,
+            );
+          }
         }
 
         const order = await tx.order.create({
@@ -237,6 +259,7 @@ export class OrderSplitterService {
                 qty: line.qty,
                 unitPrice: line.unitPrice,
                 lineTotal: line.lineTotal,
+                flashSaleItemId: line.flashSaleItemId,
               })),
             },
             statusHistory: {
@@ -293,6 +316,91 @@ export class OrderSplitterService {
 
       return created;
     });
+  }
+
+  /**
+   * Commits flash sale units to an order, atomically.
+   *
+   * Two independent guards, in this order:
+   *
+   * 1. `perUserLimit`, counted from the buyer's own prior orders. Checked first
+   *    because it is the cheap query and the message is the more useful one when
+   *    both would fail.
+   * 2. The budget, with a conditional `updateMany`. This is the part that
+   *    actually prevents oversell: PostgreSQL evaluates the `soldCount + qty <=
+   *    stockLimit` predicate against the current row while holding the write
+   *    lock, so two concurrent transactions cannot both pass it. A read-then-
+   *    write would — both would read `soldCount: 0` and both would commit.
+   *
+   * `count === 0` means another transaction took the units between the pricing
+   * read and this write, and the whole checkout rolls back rather than
+   * overselling.
+   */
+  private async claimFlashSaleUnits(
+    tx: Prisma.TransactionClient,
+    flashSaleItemId: string,
+    qty: number,
+    productName: string,
+    userId: string,
+  ): Promise<void> {
+    const item = await tx.flashSaleItem.findUnique({
+      where: { id: flashSaleItemId },
+      select: { id: true, perUserLimit: true, stockLimit: true, soldCount: true },
+    });
+
+    if (!item) {
+      throw new BadRequestException(
+        `Flash sale item for "${productName}" no longer exists`,
+      );
+    }
+
+    // Counted from orders, not from a per-user table, so the limit stays correct
+    // across cancellations: cancelling returns the units and drops this count.
+    const alreadyBought = await tx.orderItem.aggregate({
+      where: {
+        flashSaleItemId,
+        order: {
+          buyerId: userId,
+          // A cancelled order no longer holds these units, so it must not count
+          // against the buyer's allowance.
+          status: { not: OrderStatus.CANCELLED },
+        },
+      },
+      _sum: { qty: true },
+    });
+
+    const held = alreadyBought._sum.qty ?? 0;
+
+    if (held + qty > item.perUserLimit) {
+      const left = Math.max(item.perUserLimit - held, 0);
+
+      throw new BadRequestException(
+        left === 0
+          ? `Flash sale limit reached for "${productName}" (${item.perUserLimit} per customer)`
+          : `Flash sale limit for "${productName}": only ${left} more unit(s) available for you`,
+      );
+    }
+
+    const claimed = await tx.flashSaleItem.updateMany({
+      where: {
+        id: flashSaleItemId,
+        // Column-vs-column is not expressible in Prisma, so the guard is on
+        // `soldCount` alone: the increment and this predicate are one statement,
+        // which is exactly what makes it safe under concurrency.
+        soldCount: { lte: item.stockLimit - qty },
+      },
+      data: { soldCount: { increment: qty } },
+    });
+
+    if (claimed.count !== 1) {
+      const remaining = Math.max(item.stockLimit - item.soldCount, 0);
+
+      throw new BadRequestException(
+        remaining <= 0
+          ? `Flash sale for "${productName}" is sold out`
+          : `Only ${remaining} unit(s) left in the flash sale for "${productName}"`,
+      );
+    }
   }
 
   private async resolveDiscounts(

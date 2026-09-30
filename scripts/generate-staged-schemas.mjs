@@ -88,6 +88,8 @@ const STAGE_OF_MODEL = {
   ProductAnswer: 14,
   Banner: 15,
   HomeSection: 15,
+  FlashSale: 16,
+  FlashSaleItem: 16,
 };
 
 const STAGE_FILES = [
@@ -106,6 +108,7 @@ const STAGE_FILES = [
   [13, '13_search', 'Brands + search-ready product aggregates'],
   [14, '14_engagement', 'Wishlist + product Q&A'],
   [15, '15_cms', 'CMS banners + home sections'],
+  [16, '16_flash_sale', 'Flash sales + sale items'],
 ];
 
 const SCALARS = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt']);

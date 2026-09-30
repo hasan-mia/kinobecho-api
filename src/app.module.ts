@@ -60,6 +60,7 @@ import { WishlistModule } from './modules/wishlist/wishlist.module';
 import { QuestionsModule } from './modules/questions/questions.module';
 import { ReturnsModule } from './modules/returns/returns.module';
 import { CmsModule } from './modules/cms/cms.module';
+import { FlashSaleModule } from './modules/flash-sale/flash-sale.module';
 import { ProcessorsModule } from './processors/processors.module';
 import { HealthModule } from './modules/health/health.module';
 
@@ -156,6 +157,7 @@ import { HealthModule } from './modules/health/health.module';
     QuestionsModule,
     ReturnsModule,
     CmsModule,
+    FlashSaleModule,
     ProcessorsModule,
   ],
   providers: [

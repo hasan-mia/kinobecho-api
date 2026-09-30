@@ -198,6 +198,12 @@ enum ReturnReason {
   OTHER
 }
 
+enum FlashSaleItemStatus {
+  NOMINATED
+  APPROVED
+  REJECTED
+}
+
 // --- MODELS ---
 
 model Address {
@@ -392,6 +398,7 @@ model Product {
   cartItems CartItem[] @relation("CartItemToProduct_1")
   wishlistItems WishlistItem[] @relation("WishlistItemToProduct_1")
   questions ProductQuestion[] @relation("ProductToProductQuestion_1")
+  flashSaleItems FlashSaleItem[] @relation("ProductToFlashSaleItem_1")
   @@index([vendorId, status])
   @@index([categoryId])
   @@index([brandId])
@@ -429,19 +436,20 @@ model ProductPriceTier {
 }
 
 model ProductVariant {
-  id                 String      @id @default(uuid())
+  id                 String          @id @default(uuid())
   productId          String
   product Product @relation("ProductToProductVariant_1", fields: [productId], references: [id], onDelete: Cascade)
-  sku                String      @unique
+  sku                String          @unique
   attributes         Json
-  stock              Int         @default(0)
-  priceOverride      Decimal?    @db.Decimal(12, 2)
-  lowStockAlertAt    Int         @default(5)
+  stock              Int             @default(0)
+  priceOverride      Decimal?        @db.Decimal(12, 2)
+  lowStockAlertAt    Int             @default(5)
   lowStockNotifiedAt DateTime?
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
   cartItems CartItem[] @relation("CartItemToProductVariant_1")
   orderItems OrderItem[] @relation("OrderItemToProductVariant_1")
+  flashSaleItems FlashSaleItem[] @relation("ProductVariantToFlashSaleItem_1")
   @@index([productId])
   @@map("product_variants")
 }
@@ -520,9 +528,12 @@ model OrderItem {
   qty              Int
   unitPrice        Decimal        @db.Decimal(12, 2)
   lineTotal        Decimal        @db.Decimal(12, 2)
+  flashSaleItemId  String?
+  flashSaleItem FlashSaleItem? @relation("OrderItemToFlashSaleItem_1", fields: [flashSaleItemId], references: [id], onDelete: SetNull)
   returnItems ReturnItem[] @relation("OrderItemToReturnItem_1")
   @@index([orderId])
   @@index([productVariantId])
+  @@index([flashSaleItemId])
   @@map("order_items")
 }
 
@@ -895,4 +906,14 @@ model WishlistItem {
   user User @relation("WishlistItemToUser_1", fields: [userId], references: [id], onDelete: Cascade)
   product Product @relation("WishlistItemToProduct_1", fields: [productId], references: [id], onDelete: Cascade)
   @@map("wishlist_items")
+}
+
+model FlashSaleItem {
+  id           String              @id @default(uuid())
+  productId    String
+  variantId    String?
+  product Product @relation("ProductToFlashSaleItem_1", fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation("ProductVariantToFlashSaleItem_1", fields: [variantId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[] @relation("OrderItemToFlashSaleItem_1")
+  @@map("flash_sale_items")
 }

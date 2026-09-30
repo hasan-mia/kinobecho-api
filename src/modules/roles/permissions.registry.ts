@@ -60,6 +60,9 @@ export const PERMISSIONS = [
   // CMS
   { key: 'cms:manage', description: 'Manage storefront banners and home sections' },
 
+  // Flash sales
+  { key: 'flashsale:manage', description: 'Manage flash sales and approve vendor nominations' },
+
   // Returns
   { key: 'return:read', description: 'Read every return request platform-wide' },
   { key: 'return:refund', description: 'Issue refunds for return requests' },

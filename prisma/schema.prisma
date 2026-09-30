@@ -151,6 +151,14 @@ enum HomeSectionType {
   FLASH_SALE
 }
 
+/// Lifecycle of a vendor's nomination for a flash sale. A nomination is inert
+/// until an admin approves it, so a vendor cannot grant themselves a discount.
+enum FlashSaleItemStatus {
+  NOMINATED
+  APPROVED
+  REJECTED
+}
+
 enum ChatThreadType {
   BUYER_VENDOR
   BUYER_SUPPORT
@@ -626,6 +634,7 @@ model Product {
   cartItems       CartItem[]         @relation("CartItemToProduct_1")
   wishlistItems   WishlistItem[]     @relation("WishlistItemToProduct_1")
   questions       ProductQuestion[]  @relation("ProductToProductQuestion_1")
+  flashSaleItems  FlashSaleItem[]    @relation("ProductToFlashSaleItem_1")
 
   @@index([vendorId, status])
   @@index([categoryId])
@@ -671,23 +680,24 @@ model ProductPriceTier {
 }
 
 model ProductVariant {
-  id                 String      @id @default(uuid())
+  id                 String          @id @default(uuid())
   productId          String
-  product            Product     @relation("ProductToProductVariant_1", fields: [productId], references: [id], onDelete: Cascade)
-  sku                String      @unique
+  product            Product         @relation("ProductToProductVariant_1", fields: [productId], references: [id], onDelete: Cascade)
+  sku                String          @unique
   attributes         Json
-  stock              Int         @default(0)
-  priceOverride      Decimal?    @db.Decimal(12, 2)
-  lowStockAlertAt    Int         @default(5)
+  stock              Int             @default(0)
+  priceOverride      Decimal?        @db.Decimal(12, 2)
+  lowStockAlertAt    Int             @default(5)
   /// Set the first time the vendor is warned about low stock for this variant.
   /// Reset to null once stock recovers above the alert level, so the next
   /// dip warns again. A date rather than a boolean because the warning is
   /// useful to audit.
   lowStockNotifiedAt DateTime?
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-  cartItems          CartItem[]  @relation("CartItemToProductVariant_1")
-  orderItems         OrderItem[] @relation("OrderItemToProductVariant_1")
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  cartItems          CartItem[]      @relation("CartItemToProductVariant_1")
+  orderItems         OrderItem[]     @relation("OrderItemToProductVariant_1")
+  flashSaleItems     FlashSaleItem[] @relation("ProductVariantToFlashSaleItem_1")
 
   @@index([productId])
   @@map("product_variants")
@@ -777,10 +787,21 @@ model OrderItem {
   qty              Int
   unitPrice        Decimal        @db.Decimal(12, 2)
   lineTotal        Decimal        @db.Decimal(12, 2)
+  /// The flash sale this line was bought under, if any.
+  ///
+  /// This is what makes the sale budget releasable: on cancellation the service
+  /// decrements `FlashSaleItem.soldCount` by this line's qty. Without the
+  /// reference, a cancelled order's units would stay consumed in the sale
+  /// counter forever, shrinking the budget permanently. Null for ordinary
+  /// orders.
+  flashSaleItemId  String?
+  flashSaleItem    FlashSaleItem? @relation("OrderItemToFlashSaleItem_1", fields: [flashSaleItemId], references: [id], onDelete: SetNull)
   returnItems      ReturnItem[]   @relation("OrderItemToReturnItem_1")
 
   @@index([orderId])
   @@index([productVariantId])
+  /// The cancellation sweep walks "every order item bought on sale" by sale id.
+  @@index([flashSaleItemId])
   @@map("order_items")
 }
 
@@ -1161,4 +1182,66 @@ model HomeSection {
 
   @@index([isActive, sortOrder])
   @@map("home_sections")
+}
+
+/// A time-boxed promotional window.
+///
+/// `startsAt`/`endsAt` are required rather than nullable: a flash sale with no
+/// window is just a permanent discount, and making both bounds mandatory means
+/// "live right now" is always a complete predicate. `isActive` is the kill
+/// switch that does not require editing the window.
+model FlashSale {
+  id        String          @id @default(uuid())
+  title     String
+  startsAt  DateTime
+  endsAt    DateTime
+  isActive  Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  items     FlashSaleItem[] @relation("FlashSaleToFlashSaleItem_1")
+
+  @@index([isActive, startsAt, endsAt])
+  @@map("flash_sales")
+}
+
+/// One discounted line inside a flash sale.
+///
+/// `stockLimit` is a cap on flash-sale units, deliberately separate from
+/// `ProductVariant.stock`: the sale budget is a merchandising decision and must
+/// not be consumable by ordinary checkout traffic. `soldCount` is the counter
+/// checkout increments with a conditional update, so it is the authoritative
+/// value — never computed as `stockLimit - something`.
+///
+/// The unique constraint is `[flashSaleId, productId, variantId]`, but note
+/// PostgreSQL treats NULLs as distinct, so it does NOT cover rows with a NULL
+/// `variantId`. Duplicates for product-level sales must be merged in the
+/// service, exactly as `CartItem` does.
+model FlashSaleItem {
+  id           String              @id @default(uuid())
+  flashSaleId  String
+  flashSale    FlashSale           @relation("FlashSaleToFlashSaleItem_1", fields: [flashSaleId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product             @relation("ProductToFlashSaleItem_1", fields: [productId], references: [id], onDelete: Cascade)
+  /// Null means the discount applies to the product as a whole rather than one
+  /// variant. Checkout still requires a specific variant; the sale price is
+  /// simply shared across them.
+  variantId    String?
+  variant      ProductVariant?     @relation("ProductVariantToFlashSaleItem_1", fields: [variantId], references: [id], onDelete: Cascade)
+  salePrice    Decimal             @db.Decimal(12, 2)
+  /// Flash-sale unit budget. Enforced by the conditional increment at checkout.
+  stockLimit   Int
+  /// Units committed by non-cancelled orders. Incremented and decremented
+  /// transactionally; never derived.
+  soldCount    Int                 @default(0)
+  perUserLimit Int                 @default(1)
+  status       FlashSaleItemStatus @default(NOMINATED)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  orderItems OrderItem[] @relation("OrderItemToFlashSaleItem_1")
+
+  @@unique([flashSaleId, productId, variantId])
+  @@index([flashSaleId, status])
+  @@index([productId])
+  @@map("flash_sale_items")
 }

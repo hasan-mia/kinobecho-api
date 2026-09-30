@@ -223,6 +223,7 @@ describe('order expiry and cancellation', () => {
           restocked: [],
           couponReleased: false,
           transactionsFailed: 0,
+          flashSaleReleased: [],
         });
 
       const result = await buildProcessor().process({} as never);
@@ -262,6 +263,7 @@ describe('order expiry and cancellation', () => {
           restocked: [],
           couponReleased: false,
           transactionsFailed: 0,
+          flashSaleReleased: [],
         });
 
       const result = await buildProcessor().process({} as never);

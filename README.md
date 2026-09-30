@@ -166,6 +166,7 @@ kinobecho-api/
 │       ├── wishlist/           # Saved products, live price and stock
 │       ├── questions/          # Product Q&A with moderation
 │       ├── cms/                # Storefront banners and home sections
+│       ├── flash-sale/         # Flash sales, vendor nominations, budgets
 │       ├── chat/               # Socket.io gateway + REST, Redis adapter
 │       ├── notification/       # Mail/push providers, BullMQ promo campaigns
 │       └── health/             # Liveness/readiness (DB, Redis)
@@ -723,6 +724,52 @@ after the submitted ones so no row keeps a stale index.
 Banner links are validated on write: `NONE` clears `linkValue` rather than
 leaving a dangling target the storefront would still follow, and a `URL` link
 must be `http`/`https` — this is stored content handed straight to an `href`.
+
+### Flash sales — `flash-sales`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/flash-sales/active` | Public — live sales with remaining budget, cached 30s |
+| `GET` `POST` | `/flash-sales` | Admin (`flashsale:manage`) — list, create |
+| `GET` `PATCH` `DELETE` | `/flash-sales/{id}` | Admin (`flashsale:manage`) |
+| `POST` | `/flash-sales/{id}/nominate` | Vendor — nominate an own product |
+| `PATCH` `DELETE` | `/flash-sales/{id}/items/{itemId}` | Admin (`flashsale:manage`) — edit or remove |
+| `PATCH` | `/flash-sales/{id}/items/{itemId}/moderate` | Admin — approve or reject |
+
+A nomination is **inert**: `status` starts at `NOMINATED` and only an admin
+approval makes the price reachable. Without that gate a vendor could grant
+themselves an arbitrary discount by inserting a row. A nomination is refused if
+`salePrice` is not below the normal price, if the budget exceeds the stock that
+could fill it, or if the same product is already nominated.
+
+**Pricing.** `ProductPricingService` checks a live, approved, unexhausted sale
+item *before* price tiers — the sale price is why the buyer is there, and a tier
+would otherwise quietly override it. A variant-specific item wins over a
+product-level wildcard, since the narrower discount is the one the vendor
+negotiated for that variant. An exhausted sale falls through to normal pricing
+rather than showing a discount the checkout will refuse.
+
+**Checkout.** The budget is committed with a conditional
+`updateMany` — `soldCount <= stockLimit - qty` plus
+`soldCount: { increment: qty }` in one statement — and `count === 1` is required
+to continue. Postgres evaluates the predicate against the locked current row, so
+two buyers racing for the last unit produce one order, not two; a read-then-write
+would let both read `soldCount: 0` and both commit. A `count === 0` rolls the
+whole checkout back with a message naming what ran out. `perUserLimit` is checked
+first (cheaper query, more actionable message) and is counted from the buyer's
+own prior **non-cancelled** orders, so cancelling returns the allowance.
+
+**Cancellation** releases the budget in the same transaction as the restock, and
+`OrderItem.flashSaleItemId` is what makes that possible — without the
+back-reference a cancelled order's units would stay consumed forever. A
+`soldCount: { gt: 0 }` guard stops the counter going negative, and releasing
+nothing does not fail the cancellation. Because the sweep is idempotent, a
+re-run cannot hand back the same budget twice, which is what stops a buyer
+exceeding `perUserLimit` after a cancel.
+
+`GET /cart` reports the sale price, the normal price it replaces, the remaining
+budget, the countdown, and a `purchasable` flag, so checkout can be disabled in
+the cart rather than failing at the last step.
 
 ### Reviews — `reviews`
 

@@ -19,6 +19,8 @@ export interface CancelOrderResult {
   restocked: { productVariantId: string; qty: number }[];
   couponReleased: boolean;
   transactionsFailed: number;
+  /** Flash sale budgets given back, aggregated per sale item. */
+  flashSaleReleased: { flashSaleItemId: string; qty: number }[];
 }
 
 export interface CancelOrderOptions {
@@ -83,6 +85,7 @@ export class OrderCancellationService {
           restocked: [],
           couponReleased: false,
           transactionsFailed: 0,
+          flashSaleReleased: [],
         };
       }
 
@@ -95,6 +98,7 @@ export class OrderCancellationService {
           restocked: [],
           couponReleased: false,
           transactionsFailed: 0,
+          flashSaleReleased: [],
         };
       }
 
@@ -105,6 +109,11 @@ export class OrderCancellationService {
       }
 
       const restocked = await this.restoreStock(tx, order.id);
+
+      // Inside the same transaction as the cancellation itself: if the budget
+      // update fails, the order must not be marked CANCELLED, or those units
+      // would be released from stock but stay consumed in the sale counter.
+      const flashSaleReleased = await this.releaseFlashSaleUnits(tx, order.id);
 
       // A coupon is only linked when a discount was actually applied, so the
       // guard on discountTotal keeps cancelled full-price orders from touching
@@ -153,6 +162,7 @@ export class OrderCancellationService {
         restocked,
         couponReleased,
         transactionsFailed: failed.count,
+        flashSaleReleased,
       };
     });
   }
@@ -191,5 +201,50 @@ export class OrderCancellationService {
     }
 
     return restocked;
+  }
+
+  /**
+   * Gives back the flash sale budget a cancelled order was holding.
+   *
+   * Aggregated per sale item, matching `restoreStock`: several order lines can
+   * sit on the same sale item, and one decrement per item keeps the writes to
+   * the number of distinct promotions rather than the number of lines.
+   *
+   * The `soldCount: { gt: 0 }` guard stops the counter going negative if a
+   * previous release — or a manual admin fix — already brought it to zero. The
+   * order is not released in that case; a `count === 0` just means there was
+   * nothing left to give back, and the cancellation still succeeds.
+   */
+  private async releaseFlashSaleUnits(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+  ): Promise<{ flashSaleItemId: string; qty: number }[]> {
+    const grouped = await tx.orderItem.groupBy({
+      by: ['flashSaleItemId'],
+      where: { orderId, flashSaleItemId: { not: null } },
+      _sum: { qty: true },
+    });
+
+    const released: { flashSaleItemId: string; qty: number }[] = [];
+
+    for (const row of grouped) {
+      const flashSaleItemId = row.flashSaleItemId;
+      const qty = row._sum.qty ?? 0;
+
+      if (!flashSaleItemId || qty <= 0) {
+        continue;
+      }
+
+      const updated = await tx.flashSaleItem.updateMany({
+        where: { id: flashSaleItemId, soldCount: { gt: 0 } },
+        data: { soldCount: { decrement: qty } },
+      });
+
+      if (updated.count > 0) {
+        released.push({ flashSaleItemId, qty });
+      }
+    }
+
+    return released;
   }
 }
