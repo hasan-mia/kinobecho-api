@@ -5,10 +5,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   Order,
   OrderStatus,
   PaymentGateway,
+  PaymentStatus,
   Prisma,
   TransactionDirection,
   TransactionStatus,
@@ -47,7 +49,39 @@ export class PaymentsService {
     private readonly bkash: BkashProvider,
     private readonly nagad: NagadProvider,
     private readonly sslcommerz: SslCommerzProvider,
+    private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * Payment methods the storefront may offer. COD is gated on COD_ENABLED so it
+   * can be switched off globally without a redeploy.
+   */
+  getEnabledMethods() {
+    const codEnabled = this.configService.get<boolean>('cod.enabled') !== false;
+    const codMaxAmount =
+      this.configService.get<number>('cod.maxAmount') ?? 20000;
+
+    const online: { code: PaymentGateway; label: string }[] = [
+      { code: PaymentGateway.STRIPE, label: 'Card' },
+      { code: PaymentGateway.BKASH, label: 'bKash' },
+      { code: PaymentGateway.NAGAD, label: 'Nagad' },
+      { code: PaymentGateway.SSLCOMMERZ, label: 'SSLCommerz' },
+    ];
+
+    return {
+      methods: codEnabled
+        ? [
+            ...online,
+            {
+              code: PaymentGateway.COD,
+              label: 'Cash on delivery',
+              maxAmount: codMaxAmount,
+            },
+          ]
+        : online,
+      cod: { enabled: codEnabled, maxAmount: codMaxAmount },
+    };
+  }
 
   private providerFor(gateway: PaymentGateway): PaymentGatewayContract {
     switch (gateway) {
@@ -68,6 +102,10 @@ export class PaymentsService {
     orderId: string,
     gateway: PaymentGateway,
   ) {
+    if (gateway === PaymentGateway.COD) {
+      return this.createCodPaymentForOrder(user, orderId);
+    }
+
     const order = await this.requireOrder(orderId);
     this.assertCanManageOrder(user, order);
 
@@ -85,29 +123,122 @@ export class PaymentsService {
       customerName: user.name,
     });
 
-    const transaction = await this.prisma.transaction.upsert({
-      where: { externalRef: intent.id },
-      update: {
-        rawResponse: intent as unknown as Prisma.InputJsonValue,
-      },
-      create: {
-        type: TransactionType.PAYMENT,
-        direction: TransactionDirection.CREDIT,
-        status: TransactionStatus.PENDING,
-        amount: order.grandTotal,
-        currency: 'BDT',
-        fromType: 'CUSTOMER',
-        fromId: order.buyerId,
-        toType: 'PLATFORM',
-        toId: null,
-        gateway,
-        externalRef: intent.id,
-        rawResponse: intent as unknown as Prisma.InputJsonValue,
-        orderId: order.id,
-      },
+    const transaction = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.transaction.upsert({
+        where: { externalRef: intent.id },
+        update: {
+          rawResponse: intent as unknown as Prisma.InputJsonValue,
+        },
+        create: {
+          type: TransactionType.PAYMENT,
+          direction: TransactionDirection.CREDIT,
+          status: TransactionStatus.PENDING,
+          amount: order.grandTotal,
+          currency: 'BDT',
+          fromType: 'CUSTOMER',
+          fromId: order.buyerId,
+          toType: 'PLATFORM',
+          toId: null,
+          gateway,
+          externalRef: intent.id,
+          rawResponse: intent as unknown as Prisma.InputJsonValue,
+          orderId: order.id,
+        },
+      });
+
+      // Record the chosen method immediately; paymentStatus stays UNPAID until a
+      // webhook confirms the money actually arrived.
+      await tx.order.update({
+        where: { id: order.id },
+        data: { paymentMethod: gateway },
+      });
+
+      return row;
     });
 
     return { transaction, intent };
+  }
+
+  /**
+   * Cash on delivery. No gateway is called and no money moves online: the order
+   * is confirmed with a PENDING ledger row, and the row is only completed when
+   * the courier marks the order DELIVERED (see settleCodOnDelivery).
+   */
+  async createCodPaymentForOrder(user: AuthenticatedUser, orderId: string) {
+    if (this.configService.get<boolean>('cod.enabled') === false) {
+      throw new BadRequestException('Cash on delivery is not available');
+    }
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // COD is buyer-only: a vendor or admin must not be able to flip an order to
+    // pay-on-delivery, so this deliberately does not use assertCanManageOrder.
+    if (order.buyerId !== user.id) {
+      throw new ForbiddenException('Only the buyer can select cash on delivery');
+    }
+
+    if (order.status !== OrderStatus.PENDING) {
+      throw new BadRequestException(
+        'Cash on delivery can only be selected for a pending order',
+      );
+    }
+
+    if (order.paymentMethod === PaymentGateway.COD) {
+      throw new BadRequestException('Cash on delivery is already selected');
+    }
+
+    const maxAmount = this.configService.get<number>('cod.maxAmount') ?? 20000;
+
+    if (Number(order.grandTotal) > maxAmount) {
+      throw new BadRequestException(
+        `Cash on delivery is not available for orders above ${maxAmount}`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.create({
+        data: {
+          type: TransactionType.PAYMENT,
+          direction: TransactionDirection.CREDIT,
+          status: TransactionStatus.PENDING,
+          amount: order.grandTotal,
+          currency: 'BDT',
+          fromType: 'CUSTOMER',
+          fromId: order.buyerId,
+          toType: 'PLATFORM',
+          toId: null,
+          gateway: PaymentGateway.COD,
+          externalRef: `cod:${order.id}`,
+          orderId: order.id,
+          note: 'Cash on delivery',
+        },
+      });
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          paymentMethod: PaymentGateway.COD,
+          paymentStatus: PaymentStatus.PENDING_COD,
+          status: OrderStatus.CONFIRMED,
+        },
+      });
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: order.id,
+          fromStatus: order.status,
+          toStatus: OrderStatus.CONFIRMED,
+          note: 'Cash on delivery selected by buyer',
+          changedById: user.id,
+        },
+      });
+
+      return { transaction };
+    });
   }
 
   async confirmPayment(input: ConfirmPaymentInput) {
@@ -151,25 +282,74 @@ export class PaymentsService {
           where: { id: payment.orderId },
         });
 
-        if (order && order.status === OrderStatus.PENDING) {
+        if (order) {
+          // An online gateway settling means the money is in, regardless of the
+          // order's fulfilment status. COD never reaches here: it has no webhook.
           await tx.order.update({
             where: { id: order.id },
-            data: { status: OrderStatus.CONFIRMED },
+            data: { paymentStatus: PaymentStatus.PAID },
           });
 
-          await tx.orderStatusHistory.create({
-            data: {
-              orderId: order.id,
-              fromStatus: order.status,
-              toStatus: OrderStatus.CONFIRMED,
-              note: `Payment confirmed via ${input.gateway}`,
-            },
-          });
+          if (order.status === OrderStatus.PENDING) {
+            await tx.order.update({
+              where: { id: order.id },
+              data: { status: OrderStatus.CONFIRMED },
+            });
+
+            await tx.orderStatusHistory.create({
+              data: {
+                orderId: order.id,
+                fromStatus: order.status,
+                toStatus: OrderStatus.CONFIRMED,
+                note: `Payment confirmed via ${input.gateway}`,
+              },
+            });
+          }
         }
       }
 
       return completed;
     });
+  }
+
+  /**
+   * Called when an order reaches DELIVERED. For COD this is the moment the
+   * money is actually collected, so the pending ledger row is completed and the
+   * order flips to PAID inside the caller's transaction.
+   *
+   * `tx` must be the same transaction that applied the DELIVERED status change,
+   * so an order can never be DELIVERED while its COD payment stays open.
+   * Returns true when a COD payment was settled.
+   */
+  async settleCodOnDelivery(
+    tx: Prisma.TransactionClient,
+    order: { id: string; paymentMethod: PaymentGateway | null; paymentStatus: PaymentStatus },
+  ): Promise<boolean> {
+    if (order.paymentMethod !== PaymentGateway.COD) {
+      return false;
+    }
+
+    // Already collected (re-delivery, retry, or a manual re-run): idempotent.
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      return false;
+    }
+
+    await tx.transaction.updateMany({
+      where: {
+        orderId: order.id,
+        type: TransactionType.PAYMENT,
+        gateway: PaymentGateway.COD,
+        status: TransactionStatus.PENDING,
+      },
+      data: { status: TransactionStatus.COMPLETED, completedAt: new Date() },
+    });
+
+    await tx.order.update({
+      where: { id: order.id },
+      data: { paymentStatus: PaymentStatus.PAID },
+    });
+
+    return true;
   }
 
   async failPayment(gateway: PaymentGateway, externalRef: string, reason: string) {
@@ -243,6 +423,30 @@ export class PaymentsService {
           orderId: order.id,
           note: input.note ?? `Refund for order ${order.orderNumber}`,
           completedAt: new Date(),
+        },
+      });
+
+      // Reflect the refund on the order so storefronts do not keep showing a
+      // fully-paid order after money went back.
+      const refundedTotal = await tx.transaction.aggregate({
+        where: {
+          orderId: order.id,
+          type: TransactionType.REFUND,
+          status: TransactionStatus.COMPLETED,
+        },
+        _sum: { amount: true },
+      });
+
+      const isFullRefund = (refundedTotal._sum.amount ?? new Prisma.Decimal(0)).gte(
+        payment.amount,
+      );
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          paymentStatus: isFullRefund
+            ? PaymentStatus.REFUNDED
+            : PaymentStatus.PARTIALLY_REFUNDED,
         },
       });
 

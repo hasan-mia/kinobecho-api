@@ -4,10 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Order, OrderItem, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { Order, OrderItem, OrderStatus, PaymentGateway, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { OrderSplitterService } from './order-splitter.service';
+import { PaymentsService } from '../payments/payments.service';
 import {
   CheckoutDto,
   ListAdminOrdersQueryDto,
@@ -36,6 +37,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly splitter: OrderSplitterService,
+    private readonly payments: PaymentsService,
   ) {}
 
   async checkout(user: AuthenticatedUser, dto: CheckoutDto) {
@@ -183,6 +185,12 @@ export class OrdersService {
 
       if (dto.status === OrderStatus.CANCELLED) {
         await this.restoreStock(tx, order);
+      }
+
+      // Delivery is the moment COD money is collected, so the ledger row is
+      // completed in the same transaction as the status change.
+      if (dto.status === OrderStatus.DELIVERED) {
+        await this.payments.settleCodOnDelivery(tx, order);
       }
 
       return result;

@@ -3,6 +3,7 @@ import { OrderStatus, Prisma, SaleChannel, UserRole } from '@prisma/client';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { OrderSplitterService } from '../src/modules/orders/order-splitter.service';
 import { PrismaService } from '../src/database/prisma.service';
+import { PaymentsService } from '../src/modules/payments/payments.service';
 import { ListAdminOrdersQueryDto } from '../src/modules/orders/dto/order.dto';
 import { AuthenticatedUser } from '../src/common/guards/roles.guard';
 
@@ -71,6 +72,7 @@ describe('OrdersService.findAllOrders', () => {
     service = new OrdersService(
       prisma as unknown as PrismaService,
       {} as OrderSplitterService,
+      { settleCodOnDelivery: vi.fn() } as unknown as PaymentsService,
     );
   });
 
@@ -247,6 +249,7 @@ describe('OrdersService.assertCanView', () => {
     service = new OrdersService(
       prisma as unknown as PrismaService,
       {} as OrderSplitterService,
+      { settleCodOnDelivery: vi.fn() } as unknown as PaymentsService,
     );
   });
 

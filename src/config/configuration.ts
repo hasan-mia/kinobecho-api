@@ -46,6 +46,14 @@ export const stripeConfig = registerAs('stripe', () => ({
   publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
 }));
 
+// Cash on delivery. COD_ENABLED is the master switch exposed by
+// GET /payments/methods; COD_MAX_AMOUNT caps the order total that may be paid
+// on delivery, so vendors cannot be asked to collect an unbounded amount.
+export const codConfig = registerAs('cod', () => ({
+  enabled: process.env.COD_ENABLED !== 'false',
+  maxAmount: Number(process.env.COD_MAX_AMOUNT ?? 20000),
+}));
+
 export const localPaymentsConfig = registerAs('localPayments', () => ({
   bkash: {
     appKey: process.env.BKASH_APP_KEY,

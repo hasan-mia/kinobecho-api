@@ -75,6 +75,9 @@ export const envValidationSchema = Joi.object({
   SSLCOMMERZ_API_SECRET: Joi.string().allow('').optional(),
   SSLCOMMERZ_SANDBOX: Joi.boolean().default(true),
 
+  COD_ENABLED: Joi.boolean().default(true),
+  COD_MAX_AMOUNT: Joi.number().positive().default(20000),
+
   STORAGE_DRIVER: Joi.string().valid('local', 's3', 'gcs').default('local'),
   LOCAL_UPLOAD_PATH: Joi.string().default('uploads'),
   LOCAL_ASSET_URL: Joi.string().default('/uploads'),

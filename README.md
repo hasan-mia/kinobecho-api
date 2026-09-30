@@ -270,6 +270,8 @@ npm run start:dev
 | `BKASH_APP_KEY` / `BKASH_APP_SECRET` / `BKASH_USERNAME` / `BKASH_PASSWORD` / `BKASH_WEBHOOK_SECRET` | bKash | — |
 | `NAGAD_MERCHANT_ID` / `NAGAD_API_KEY` / `NAGAD_API_SECRET` / `NAGAD_WEBHOOK_SECRET` | Nagad | — |
 | `SSLCOMMERZ_STORE_ID` / `SSLCOMMERZ_STORE_PASSWORD` / `SSLCOMMERZ_API_KEY` / `SSLCOMMERZ_API_SECRET` / `SSLCOMMERZ_SANDBOX` | SSLCommerz | — |
+| `COD_ENABLED` | Master switch for cash on delivery | `true` |
+| `COD_MAX_AMOUNT` | Max order total (BDT) payable on delivery | `20000` |
 | **Rate limiting** |||
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | Global window (ms) and max requests | `60000` / `100` |
 | `THROTTLE_AUTH_TTL` / `THROTTLE_AUTH_LIMIT` | Auth-specific window and max | `900000` / `5` |

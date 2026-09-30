@@ -53,6 +53,22 @@ enum OrderStatus {
   RETURNED
 }
 
+enum PaymentGateway {
+  STRIPE
+  BKASH
+  NAGAD
+  SSLCOMMERZ
+  COD
+}
+
+enum PaymentStatus {
+  UNPAID
+  PENDING_COD
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
 enum ReviewStatus {
   PENDING
   APPROVED

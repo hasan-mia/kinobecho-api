@@ -20,6 +20,7 @@ import {
   RefundOrderDto,
 } from './dto/payment.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { UserRole } from '@prisma/client';
@@ -34,6 +35,18 @@ export class PaymentsController {
     private readonly paymentsService: PaymentsService,
     private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Declared before the parameterised routes so `GET /payments/methods` is not
+   * shadowed. Public: the storefront needs it before the buyer has a token.
+   */
+  @Get('methods')
+  @Public()
+  @ApiOperation({ summary: 'List the payment methods available at checkout' })
+  @ApiResponse({ status: 200, description: 'Enabled payment methods' })
+  getMethods() {
+    return this.paymentsService.getEnabledMethods();
+  }
 
   @Post('order/:orderId')
   @Roles(UserRole.CUSTOMER, UserRole.ADMIN, UserRole.SUPER_ADMIN)
