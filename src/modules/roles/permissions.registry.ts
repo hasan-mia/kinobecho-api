@@ -67,6 +67,11 @@ export const PERMISSIONS = [
   { key: 'return:read', description: 'Read every return request platform-wide' },
   { key: 'return:refund', description: 'Issue refunds for return requests' },
 
+  // RFQs / Quotations
+  { key: 'rfq:read', description: 'Read every request for quotation platform-wide' },
+  { key: 'rfq:manage', description: 'Close, reopen or moderate any request for quotation' },
+  { key: 'rfq:quote', description: 'Quote on open requests for quotation' },
+
   // Analytics
   { key: 'analytics:read', description: 'Read platform-wide analytics' },
 ] as const;
@@ -84,4 +89,8 @@ export const USER_ROLE_PERMISSIONS: PermissionKey[] = [
   'order:update:own',
   'coupon:manage',
   'payments:create',
+  // The RFQ pool is the vendor-facing half of the feature: a vendor with none of
+  // these can see a matching request but cannot answer it.
+  'rfq:read',
+  'rfq:quote',
 ];

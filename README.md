@@ -261,6 +261,10 @@ npm run start:dev
 | `JWT_ACCESS_EXPIRES_IN` | Access token TTL | `15m` |
 | `JWT_REFRESH_SECRET` | Refresh token secret | — |
 | `JWT_REFRESH_EXPIRES_IN` | Refresh token TTL | `7d` |
+| **Social sign-in** |||
+| `GOOGLE_CLIENT_IDS` | Comma-separated Google client ids; every audience is validated against this list | — (empty disables Google sign-in) |
+| `FACEBOOK_APP_ID` | Facebook app id the access token is validated against | — |
+| `FACEBOOK_APP_SECRET` | Facebook app secret | — |
 | **Storage** |||
 | `STORAGE_DRIVER` | `local` \| `s3` \| `gcs` | `local` |
 | `LOCAL_UPLOAD_PATH` | Local upload directory | `uploads` |
@@ -333,22 +337,36 @@ See `.env.example` for the full annotated list.
 ## Database & Migrations
 
 `prisma/schema.prisma` is the single source of truth. Migrations are split into
-**nine logical stages** instead of one monolithic file, so each area of the
+**nineteen logical stages** instead of one monolithic file, so each area of the
 schema can be reviewed, reverted, or reasoned about on its own.
 
-| Stage | Migration | Contents |
-|-------|-----------|----------|
-| 1 | `auth_rbac` | `Role`, `Permission`, `RolePermission`, `RoleAuditLog`, `RefreshToken`, `User`, `Address` |
-| 2 | `vendor` | `Vendor` with KYC status, commission rate, payout details |
-| 3 | `category_product` | `Category`, `Product`, `ProductVariant`, `ProductPriceTier`, `ProductImage` |
-| 4 | `cart_order` | `Cart`, `CartItem`, `Order`, `OrderItem`, `OrderStatusHistory` |
-| 5 | `transaction` | `Transaction` ledger, `TransactionOrder` settlement links |
-| 6 | `review_coupon` | `Review`, `Coupon` |
-| 7 | `chat` | `ChatThread`, `ChatMessage`, `ChatParticipantState` |
-| 8 | `storage_notification` | `StorageFile`, `DeviceToken`, `NotificationLog`, `PromotionCampaign` |
-| 9 | `infra` | `WebhookEvent`, `QueueEvent`, `Session` |
+| Stage | Migration | Contents | Models |
+|-------|-----------|----------|--------|
+| 1 | `01_auth_rbac` | Auth · Users · RBAC | `Role`, `Permission`, `RolePermission`, `RoleAuditLog`, `RefreshToken`, `User`, `Address` |
+| 2 | `02_vendor` | Vendor | `Vendor` |
+| 3 | `03_category_product` | Category · Product · Variants · Price tiers · Images | `Category`, `Product`, `ProductVariant`, `ProductPriceTier`, `ProductImage` |
+| 4 | `04_cart_order` | Cart · Order · Order items · Status history | `Cart`, `CartItem`, `Order`, `OrderItem`, `OrderStatusHistory` |
+| 5 | `05_transaction` | Transactions · Settlement | `Transaction`, `TransactionOrder` |
+| 6 | `06_review_coupon` | Reviews · Coupons | `Review`, `Coupon` |
+| 7 | `07_chat` | Chat threads · Messages · Participant state | `ChatThread`, `ChatMessage`, `ChatParticipantState` |
+| 8 | `08_storage_notification` | Storage · Notifications · Campaigns | `StorageFile`, `DeviceToken`, `NotificationLog`, `PromotionCampaign` |
+| 9 | `09_infra` | Infra (webhook, queue, session) | `WebhookEvent`, `QueueEvent`, `Session` |
+| 10 | `10_shipping` | Shipping zones · rates · shipments | `ShippingZone`, `ShippingRate`, `Shipment`, `ShipmentEvent` |
+| 11 | `11_otp` | OTP codes | `OtpCode` |
+| 12 | `12_returns` | Return requests · return items | `ReturnRequest`, `ReturnItem`, `PayoutAdjustment` |
+| 13 | `13_search` | Brands + search-ready product aggregates | `Brand` |
+| 14 | `14_engagement` | Wishlist + product Q&A | `WishlistItem`, `ProductQuestion`, `ProductAnswer` |
+| 15 | `15_cms` | CMS banners + home sections | `Banner`, `HomeSection` |
+| 16 | `16_flash_sale` | Flash sales + sale items | `FlashSale`, `FlashSaleItem` |
+| 17 | `17_i18n` | Product · category · brand translations | `ProductTranslation`, `CategoryTranslation`, `BrandTranslation` |
+| 18 | `18_social_auth` | Social accounts (Google · Facebook sign-in) | `SocialAccount` |
+| 19 | `19_rfq` | RFQs and vendor quotations | `Rfq`, `Quotation` |
 
-**How the stages work.** `prisma/staged-schemas/` holds nine *cumulative*
+Later stages also add columns to tables an earlier stage created as a stub.
+Stage 18, for example, fills in the `social_accounts` table that stage 1 left
+holding only `id` and `userId`, rather than creating the table outright.
+
+**How the stages work.** `prisma/staged-schemas/` holds nineteen *cumulative*
 snapshots. Early stages include later models as id-only stubs so the relation
 graph stays valid while the underlying tables are still empty. Each migration is
 a `prisma migrate diff` between consecutive stages, so the SQL only ever adds
@@ -380,10 +398,11 @@ npm run prisma:studio           # browse data
 
 ## API Reference
 
-Base path: `/api/v1` · 17 tags · 72 paths · 91 operations
+Base path: `/api/v1` · 30 tags · 135 paths · 175 operations
 
 The list below is generated from the live OpenAPI document. Every endpoint,
-parameter and schema is documented at **`/api/v1/docs`**.
+parameter and schema is documented at **`/api/v1/docs`** (`/api/v1/docs-json`
+for the raw document, which is what the counts above are derived from).
 
 ### Auth — `auth`
 
@@ -391,8 +410,19 @@ parameter and schema is documented at **`/api/v1/docs`**.
 |--------|------|-------------|
 | `POST` | `/auth/register` | Register a customer account |
 | `POST` | `/auth/login` | Authenticate, returns access + refresh tokens |
+| `POST` | `/auth/google` | Sign in or register with a Google ID token |
+| `POST` | `/auth/facebook` | Sign in or register with a Facebook user access token |
+| `POST` | `/auth/otp/request` | Request an OTP code by SMS |
+| `POST` | `/auth/otp/verify` | Verify an OTP to sign in (`LOGIN`) or register (`REGISTER`) |
+| `POST` | `/auth/password/reset` | Reset a password with a `RESET_PASSWORD` OTP |
+| `POST` | `/auth/verify-phone` | Verify the caller's own phone number |
 | `POST` | `/auth/refresh` | Rotate a refresh token |
 | `POST` | `/auth/logout` | Revoke the current refresh token |
+
+Social sign-in accepts a provider-issued token, never a client-supplied
+identity. An existing `SocialAccount` signs in; otherwise a **verified**
+provider email links to an existing account; otherwise a `CUSTOMER` is
+created. An unverified provider email is never trusted to reach an account.
 
 ### Users — `users`
 
@@ -807,6 +837,42 @@ the cart rather than failing at the last step.
 
 Realtime messaging runs over Socket.io — see [Realtime Chat](#realtime-chat).
 
+### RFQs & Quotations — `rfq`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/rfq` | Post a request for quotation (`CUSTOMER`) |
+| `GET` | `/rfq` | The current buyer's own requests, with their quotations |
+| `GET` | `/rfq/open` | Open requests matching the caller's categories (`VENDOR`) |
+| `POST` | `/rfq/{id}/quotations` | Quote on a request (`VENDOR`) — one per vendor |
+| `POST` | `/quotations/{id}/accept` | Accept a quotation, creating the wholesale order |
+| `POST` | `/quotations/{id}/chat` | Open the buyer–vendor thread behind a quotation |
+
+A request targets either a **product variant** or a **category**, never both
+and never neither. A category-level request is answerable but cannot become an
+order, because `OrderItem.productVariantId` is non-nullable — so accepting a
+category quotation returns a 409 rather than inventing a variant.
+
+`GET /rfq/open` matches on the vendor's own categories including descendants, so
+a vendor stocking a child category sees requests filed against its parent. A
+vendor never sees competitor prices, and cannot quote on a request that names
+their own product or was filed by their own staff account.
+
+**Accepting** claims exactly one `SENT` quotation with a conditional update,
+rejects the siblings, marks the request `ACCEPTED`, and creates the order in one
+transaction. A second buyer-side accept loses the claim and gets a 409.
+
+**Pricing is not a client input.** `POST /quotations/{id}/accept` takes no body.
+The order is built by `createWholesaleOrderFromQuotation()`, which reads
+`quotation.unitPrice` inside the transaction, so the catalogue pricing service is
+never consulted and a flash sale or price tier cannot move an agreed price
+after the fact.
+
+**Expiry** is a BullMQ sweep (`rfq-expiry`, every 60s). A quotation lapses at
+its own `validUntil`; a request lapses at `expiresAt`. A request is also retired
+once it has attracted at least one quotation and none remain live. A request
+nobody has quoted on yet is left alone.
+
 ### Notifications & Promotions — `notifications` / `promotions`
 
 | Method | Path | Description |
@@ -929,10 +995,32 @@ npx vitest run test/orders.service.spec.ts   # one file
 - **Admin** — `admin@kinobecho.dev` (`SUPER_ADMIN`)
 - **Vendors** — `vendor1@`, `vendor2@`, `vendor3@kinobecho.dev` (active, KYC approved)
 - **Categories** — 5, including 2 with children
-- **Products** — 10 across vendors and categories, with variants and price tiers
+- **Products** — 10 across vendors and categories, with variants, price tiers and
+  realistic `weightGrams` so the shipping bands are actually exercised
+- **Brands** — 2 (`nova`, `vertex`), assigned to 3 of the products
 - **Customers** — `customer1@`, `customer2@kinobecho.dev` with addresses
+- **Shipping** — a `DEFAULT` zone (no districts, used as the fallback) plus a
+  `Dhaka` zone, each with 3 weight bands. The last band is open-ended so a heavy
+  parcel is charged the top rate rather than shipping free.
+- **Banners** — 3 across `HOME_HERO` and `HOME_MID`
+- **Flash sale** — one live sale with 2 `APPROVED` items, each priced below both
+  the catalogue price and the product's lowest price tier
+- **Bengali translations** — 6 categories, 2 brands and 2 products
 - **Campaign** — one `DRAFT` promo campaign
 - **Coupon** — `EID2026` (10% off, minimum 5000 BDT)
+- **Permissions** — every key in the registry, with `super_admin` holding all of
+  them and `vendor` holding its own subset
+
+The seed is **idempotent** — re-running it changes nothing and duplicates
+nothing. Permission grants are the one part that is actively repaired: a role
+created before a key existed in the registry is topped up on every run, so an
+older database converges on the current catalog.
+
+Models with no natural unique key (shipping zones, banners, flash sales) are
+matched on a name or title lookup rather than `upsert`, because Prisma can only
+upsert against a real unique constraint. Flash sale items are resolved
+independently of the sale, so a seed interrupted partway repairs itself on the
+next run instead of leaving an empty discount shelf permanently.
 
 > All seeded accounts share the password `Password123!`.
 > Development credentials only — never seed a production database.
@@ -964,6 +1052,64 @@ npm run pm2:prod
 - `trust proxy` is enabled in production for correct client IPs
 - `CORS_ORIGIN` set to the exact frontend origins, comma-separated
 - Run `npm run prisma:migrate:deploy` before starting the app
+
+**Infrastructure**
+
+- **Postgres** — reachable, with `npm run prisma:migrate:deploy` applied. The
+  app does **not** check the schema on boot, so a missed migration surfaces as
+  runtime errors on the affected routes rather than a failed start.
+- **Redis** — required. BullMQ, rate limiting, category caching and flash-sale
+  budgets all live here. Confirm it is reachable after deploy; it is a separate
+  failure mode from Postgres and is easy to miss on a split-host setup.
+- **Meilisearch** — set `MEILI_HOST` and `MEILI_MASTER_KEY`, then build the
+  index once with `npm run search:reindex`. Until an index exists, product
+  search silently falls back to Postgres, which does not rank the same way.
+- **Queue workers** — three repeatably-scheduled jobs run inside the API
+  process, so a **single** API instance is enough to keep them ticking. More
+  instances are safe (the sweeps are conditional updates, and the schedulers
+  are keyed by name). If you scale the API to zero, nothing expires.
+
+  | Queue | Runs | Does |
+  |-------|------|------|
+  | `order-expiry` | every 60s | cancels unpaid online orders past their TTL |
+  | `rfq-expiry` | every 60s | lapses quotations and retires exhausted requests |
+  | `search-index` | on change | keeps the Meilisearch product index current |
+
+**Courier credentials**
+
+Set these before enabling a courier in production; both default to sandbox or
+unset, and a half-configured courier fails at parcel creation, not at boot.
+
+| Provider | Required variables | Notes |
+|----------|--------------------|-------|
+| Steadfast | `STEADFAST_API_KEY`, `STEADFAST_SECRET_KEY` | `STEADFAST_BASE_URL` defaults to the **production** Packzy API |
+| Pathao | `PATHAO_CLIENT_ID`, `PATHAO_CLIENT_SECRET`, `PATHAO_USERNAME`, `PATHAO_PASSWORD`, `PATHAO_STORE_ID` | `PATHAO_BASE_URL` defaults to the **sandbox**; switch it for production |
+
+**SMS / OTP credentials**
+
+OTP login and password reset do not work without a gateway. Set
+`SMS_DRIVER=http` with `SMS_HTTP_URL`, `SMS_HTTP_API_KEY` and
+`SMS_HTTP_SENDER_ID` for a local BD gateway, or `SMS_DRIVER=twilio` with the
+`TWILIO_*` variables. Mail is separate: `MAIL_DRIVER` with either `SMTP_*` or
+`SENDGRID_API_KEY`.
+
+**Register these webhook URLs**
+
+Each provider is configured out-of-band, in the provider's own dashboard. All
+paths are relative to `PUBLIC_URL` and carry the `/api/v1` prefix.
+
+| Provider | URL to register | Inbound header | Secret |
+|----------|-----------------|-----------------|--------|
+| Steadfast | `{PUBLIC_URL}/api/v1/webhooks/steadfast` | `Authorization: Bearer <token>` | `STEADFAST_WEBHOOK_TOKEN` |
+| Pathao | `{PUBLIC_URL}/api/v1/webhooks/pathao` | `X-PATHAO-Signature` | `PATHAO_WEBHOOK_SECRET` (plus `PATHAO_WEBHOOK_INTEGRATION_SECRET` for the initial handshake) |
+| Stripe | `{PUBLIC_URL}/api/v1/webhooks/stripe` | `Stripe-Signature` | `STRIPE_WEBHOOK_SECRET` |
+| bKash | `{PUBLIC_URL}/api/v1/webhooks/bkash` | `bkash-signature` | `BKASH_WEBHOOK_SECRET` |
+| Nagad | `{PUBLIC_URL}/api/v1/webhooks/nagad` | `x-signature` | `NAGAD_WEBHOOK_SECRET` |
+| SSLCommerz | `{PUBLIC_URL}/api/v1/webhooks/sslcommerz` | `x-hmac-signature` | `SSLCOMMERZ_WEBHOOK_SECRET` |
+
+A webhook whose signature does not verify is rejected with 401 and never
+processed, so a mis-registered secret fails closed rather than crediting an
+order nobody paid for.
 
 ---
 
