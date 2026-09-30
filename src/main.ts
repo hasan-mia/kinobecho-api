@@ -146,6 +146,11 @@ async function bootstrap() {
       .addTag('chat', 'Chat threads and messages (REST). Realtime events run over Socket.io')
       .addTag('notifications', 'Device tokens, delivery logs and admin promotions')
       .addTag('webhooks', 'Inbound payment gateway webhooks (signature verified)')
+      .addTag(
+        'shipping',
+        'Shipping zones, fee estimates, courier shipments and courier webhooks',
+      )
+      .addTag('shipments', 'Shipment creation, tracking and status changes')
       .addTag('health', 'Liveness and readiness probes')
       .addServer(`${publicUrl}/api/v1`, isProdSwagger ? 'Production' : 'Local Development')
       .build();

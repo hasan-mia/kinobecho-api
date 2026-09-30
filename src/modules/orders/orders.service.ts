@@ -8,7 +8,7 @@ import { Order, OrderItem, OrderStatus, PaymentGateway, Prisma, UserRole } from 
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { OrderSplitterService } from './order-splitter.service';
-import { PaymentsService } from '../payments/payments.service';
+import { OrderStatusService } from '../shipping/order-status.service';
 import {
   CheckoutDto,
   ListAdminOrdersQueryDto,
@@ -16,28 +16,18 @@ import {
   UpdateOrderStatusDto,
 } from './dto/order.dto';
 
-const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  [OrderStatus.PENDING]: [
-    OrderStatus.CONFIRMED,
-    OrderStatus.CANCELLED,
-  ],
-  [OrderStatus.CONFIRMED]: [
-    OrderStatus.PROCESSING,
-    OrderStatus.CANCELLED,
-  ],
-  [OrderStatus.PROCESSING]: [OrderStatus.SHIPPED],
-  [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED],
-  [OrderStatus.DELIVERED]: [OrderStatus.RETURNED],
-  [OrderStatus.CANCELLED]: [],
-  [OrderStatus.RETURNED]: [],
-};
+/**
+ * Status transition rules now live in OrderStatusService (shared with the
+ * shipping webhooks), re-exported here so existing imports keep working.
+ */
+export { ALLOWED_TRANSITIONS } from '../shipping/order-status.service';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly splitter: OrderSplitterService,
-    private readonly payments: PaymentsService,
+    private readonly orderStatus: OrderStatusService,
   ) {}
 
   async checkout(user: AuthenticatedUser, dto: CheckoutDto) {
@@ -140,63 +130,7 @@ export class OrdersService {
     id: string,
     dto: UpdateOrderStatusDto,
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id } });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    const isAdmin =
-      user.role === UserRole.ADMIN || user.role === UserRole.SUPER_ADMIN;
-
-    if (!isAdmin) {
-      if (!user.vendor || user.vendor.id !== order.vendorId) {
-        throw new ForbiddenException('You can only update your own orders');
-      }
-    }
-
-    if (order.status === dto.status) {
-      throw new BadRequestException(`Order is already ${dto.status}`);
-    }
-
-    const allowed = ALLOWED_TRANSITIONS[order.status];
-
-    if (!allowed.includes(dto.status)) {
-      throw new BadRequestException(
-        `Cannot change order status from ${order.status} to ${dto.status}`,
-      );
-    }
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.order.update({
-        where: { id: order.id },
-        data: { status: dto.status },
-      });
-
-      await tx.orderStatusHistory.create({
-        data: {
-          orderId: order.id,
-          fromStatus: order.status,
-          toStatus: dto.status,
-          note: dto.note,
-          changedById: user.id,
-        },
-      });
-
-      if (dto.status === OrderStatus.CANCELLED) {
-        await this.restoreStock(tx, order);
-      }
-
-      // Delivery is the moment COD money is collected, so the ledger row is
-      // completed in the same transaction as the status change.
-      if (dto.status === OrderStatus.DELIVERED) {
-        await this.payments.settleCodOnDelivery(tx, order);
-      }
-
-      return result;
-    });
-
-    return updated;
+    return this.orderStatus.moveTo(user, id, dto.status, { note: dto.note });
   }
 
   /**
@@ -268,23 +202,6 @@ export class OrdersService {
         lineTotal: item.lineTotal.toFixed(2),
       })),
     };
-  }
-
-  private async restoreStock(
-    tx: Prisma.TransactionClient,
-    order: Order,
-  ) {
-    const items = await tx.orderItem.findMany({
-      where: { orderId: order.id },
-      select: { productVariantId: true, qty: true },
-    });
-
-    for (const item of items) {
-      await tx.productVariant.update({
-        where: { id: item.productVariantId },
-        data: { stock: { increment: item.qty } },
-      });
-    }
   }
 
   private async assertCanView(user: AuthenticatedUser, order: Order) {

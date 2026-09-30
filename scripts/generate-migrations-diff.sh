@@ -37,6 +37,7 @@ STAGES=(
   "07_chat:chat"
   "08_storage_notification:storage_notification"
   "09_infra:infra"
+  "10_shipping:shipping"
 )
 
 # Prisma migration lock file (single canonical lock per provider)
@@ -97,7 +98,7 @@ done
 final_sql="$(mktemp)"
 trap 'rm -f "$final_sql"' EXIT
 npx prisma migrate diff \
-  --from-schema-datamodel "$STAGED_DIR/09_infra.prisma" \
+  --from-schema-datamodel "$STAGED_DIR/10_shipping.prisma" \
   --to-schema-datamodel "$SCHEMA" \
   --script >"$final_sql" 2>/dev/null || true
 

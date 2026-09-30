@@ -160,9 +160,21 @@ enum StorageDriver {
   GCS
 }
 
-enum MailDriver {
-  SMTP
-  TWILIO
+enum CourierProvider {
+  PATHAO
+  STEADFAST
+  MANUAL
+}
+
+enum ShipmentStatus {
+  PENDING
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNED
+  CANCELLED
 }
 
 // --- MODELS ---
@@ -335,6 +347,7 @@ model Product {
   status          ProductStatus      @default(DRAFT)
   price           Decimal            @db.Decimal(12, 2)
   minOrderQty     Int?
+  weightGrams     Int                @default(500)
   countryOfOrigin String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
@@ -442,6 +455,7 @@ model Order {
   statusHistory OrderStatusHistory[] @relation("OrderToOrderStatusHistory_1")
   transactions Transaction[] @relation("OrderToTransaction_1")
   transactionOrders TransactionOrder[] @relation("OrderToTransactionOrder_1")
+  shipments Shipment[] @relation("OrderToShipment_1")
   @@index([orderGroupId])
   @@index([buyerId, status])
   @@index([vendorId, status])
@@ -710,4 +724,13 @@ model WebhookEvent {
   createdAt   DateTime @default(now())
   @@index([provider, type])
   @@map("webhook_events")
+}
+
+// --- STUBS (introduced in a later stage) ---
+
+model Shipment {
+  id            String          @id @default(uuid())
+  orderId       String
+  order Order @relation("OrderToShipment_1", fields: [orderId], references: [id], onDelete: Cascade)
+  @@map("shipments")
 }

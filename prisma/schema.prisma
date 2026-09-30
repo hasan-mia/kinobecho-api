@@ -149,6 +149,23 @@ enum MailDriver {
   TWILIO
 }
 
+enum CourierProvider {
+  PATHAO
+  STEADFAST
+  MANUAL
+}
+
+enum ShipmentStatus {
+  PENDING
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNED
+  CANCELLED
+}
+
 enum NotificationStatus {
   QUEUED
   SENT
@@ -348,6 +365,7 @@ model Product {
   status          ProductStatus      @default(DRAFT)
   price           Decimal            @db.Decimal(12, 2)
   minOrderQty     Int?
+  weightGrams     Int                @default(500)
   countryOfOrigin String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
@@ -461,6 +479,7 @@ model Order {
   statusHistory     OrderStatusHistory[] @relation("OrderToOrderStatusHistory_1")
   transactions      Transaction[]        @relation("OrderToTransaction_1")
   transactionOrders TransactionOrder[]   @relation("OrderToTransactionOrder_1")
+  shipments         Shipment[]           @relation("OrderToShipment_1")
 
   @@index([orderGroupId])
   @@index([buyerId, status])
@@ -710,6 +729,66 @@ model StorageFile {
 
   @@index([ownerType, ownerId])
   @@map("storage_files")
+}
+
+model ShippingZone {
+  id        String         @id @default(uuid())
+  name      String
+  districts String[]
+  isActive  Boolean        @default(true)
+  rates     ShippingRate[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@map("shipping_zones")
+}
+
+model ShippingRate {
+  id             String       @id @default(uuid())
+  zoneId         String
+  zone           ShippingZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  minWeightGrams Int
+  maxWeightGrams Int?
+  fee            Decimal      @db.Decimal(12, 2)
+  estimatedDays  Int
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([zoneId])
+  @@map("shipping_rates")
+}
+
+model Shipment {
+  id            String          @id @default(uuid())
+  orderId       String
+  order         Order           @relation("OrderToShipment_1", fields: [orderId], references: [id], onDelete: Cascade)
+  courier       CourierProvider
+  consignmentId String?
+  trackingCode  String?
+  status        ShipmentStatus  @default(PENDING)
+  codAmount     Decimal?        @db.Decimal(12, 2)
+  rawResponse   Json?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  events        ShipmentEvent[]
+
+  @@unique([courier, consignmentId])
+  @@index([orderId])
+  @@map("shipments")
+}
+
+model ShipmentEvent {
+  id         String         @id @default(uuid())
+  shipmentId String
+  shipment   Shipment       @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  status     ShipmentStatus
+  note       String?
+  occurredAt DateTime
+  rawPayload Json?
+  createdAt  DateTime       @default(now())
+
+  @@index([shipmentId])
+  @@map("shipment_events")
 }
 
 model QueueEvent {

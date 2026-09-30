@@ -272,6 +272,17 @@ npm run start:dev
 | `SSLCOMMERZ_STORE_ID` / `SSLCOMMERZ_STORE_PASSWORD` / `SSLCOMMERZ_API_KEY` / `SSLCOMMERZ_API_SECRET` / `SSLCOMMERZ_SANDBOX` | SSLCommerz | — |
 | `COD_ENABLED` | Master switch for cash on delivery | `true` |
 | `COD_MAX_AMOUNT` | Max order total (BDT) payable on delivery | `20000` |
+| **Shipping / couriers** |||
+| `SHIPPING_DEFAULT_ZONE_NAME` | Zone used when no district matches | `DEFAULT` |
+| `STEADFAST_BASE_URL` | Steadfast API root | `https://portal.packzy.com/api/v1` |
+| `STEADFAST_API_KEY` / `STEADFAST_SECRET_KEY` | Steadfast API credentials | — |
+| `STEADFAST_WEBHOOK_TOKEN` | Expected `Authorization: Bearer` value on inbound webhooks | — |
+| `PATHAO_BASE_URL` | Pathao API root | `https://courier-api-sandbox.pathao.com` |
+| `PATHAO_CLIENT_ID` / `PATHAO_CLIENT_SECRET` | Pathao app credentials | — |
+| `PATHAO_USERNAME` / `PATHAO_PASSWORD` | Pathao account used for the password grant | — |
+| `PATHAO_STORE_ID` | Pathao store id sent on every order | — |
+| `PATHAO_WEBHOOK_SECRET` | Expected `X-PATHAO-Signature` value | — |
+| `PATHAO_WEBHOOK_INTEGRATION_SECRET` | Value echoed in the handshake reply header | — |
 | **Rate limiting** |||
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | Global window (ms) and max requests | `60000` / `100` |
 | `THROTTLE_AUTH_TTL` / `THROTTLE_AUTH_LIMIT` | Auth-specific window and max | `900000` / `5` |

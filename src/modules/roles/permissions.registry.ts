@@ -46,6 +46,10 @@ export const PERMISSIONS = [
 
   // Webhooks
   { key: 'webhooks:manage', description: 'Manage webhook endpoints' },
+
+  // Shipping
+  { key: 'shipping:manage', description: 'Manage shipping zones and rates' },
+  { key: 'shipment:create', description: 'Create and update shipments' },
 ] as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];

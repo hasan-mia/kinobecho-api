@@ -72,6 +72,11 @@ const STAGE_OF_MODEL = {
   WebhookEvent: 9,
   QueueEvent: 9,
   Session: 9,
+
+  ShippingZone: 10,
+  ShippingRate: 10,
+  Shipment: 10,
+  ShipmentEvent: 10,
 };
 
 const STAGE_FILES = [
@@ -84,6 +89,7 @@ const STAGE_FILES = [
   [7, '07_chat', 'Chat threads / Messages / Participant state'],
   [8, '08_storage_notification', 'Storage / Notifications / Campaigns'],
   [9, '09_infra', 'Infra (webhook, queue, session)'],
+  [10, '10_shipping', 'Shipping zones / rates / shipments'],
 ];
 
 const SCALARS = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt']);

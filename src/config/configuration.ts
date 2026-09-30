@@ -77,6 +77,30 @@ export const localPaymentsConfig = registerAs('localPayments', () => ({
   },
 }));
 
+// Courier integration endpoints and credentials. Base URLs live here only; the
+// per-provider path constants live next to each provider so both halves can be
+// corrected against the official docs independently.
+export const shippingConfig = registerAs('shipping', () => ({
+  defaultZoneName: process.env.SHIPPING_DEFAULT_ZONE_NAME ?? 'DEFAULT',
+  steadfast: {
+    baseUrl:
+      process.env.STEADFAST_BASE_URL ?? 'https://portal.packzy.com/api/v1',
+    apiKey: process.env.STEADFAST_API_KEY,
+    secretKey: process.env.STEADFAST_SECRET_KEY,
+    webhookToken: process.env.STEADFAST_WEBHOOK_TOKEN,
+  },
+  pathao: {
+    baseUrl: process.env.PATHAO_BASE_URL ?? 'https://courier-api-sandbox.pathao.com',
+    clientId: process.env.PATHAO_CLIENT_ID,
+    clientSecret: process.env.PATHAO_CLIENT_SECRET,
+    username: process.env.PATHAO_USERNAME,
+    password: process.env.PATHAO_PASSWORD,
+    storeId: process.env.PATHAO_STORE_ID,
+    webhookSecret: process.env.PATHAO_WEBHOOK_SECRET,
+    webhookIntegrationSecret: process.env.PATHAO_WEBHOOK_INTEGRATION_SECRET,
+  },
+}));
+
 export const storageConfig = registerAs('storage', () => ({
   driver: process.env.STORAGE_DRIVER ?? 'local',
   localUploadPath: process.env.LOCAL_UPLOAD_PATH ?? 'uploads',

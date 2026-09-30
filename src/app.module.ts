@@ -10,9 +10,10 @@ import {
   appConfig,
   databaseConfig,
   redisConfig,
-jwtConfig,
+  jwtConfig,
   localPaymentsConfig,
   codConfig,
+  shippingConfig,
   storageConfig,
   mailConfig,
   throttleConfig,
@@ -47,6 +48,7 @@ import { PayoutsModule } from './modules/payouts/payouts.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { ShippingModule } from './modules/shipping/shipping.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -61,10 +63,11 @@ import { HealthModule } from './modules/health/health.module';
         appConfig,
         databaseConfig,
         redisConfig,
-jwtConfig,
-  localPaymentsConfig,
-  codConfig,
-  storageConfig,
+        jwtConfig,
+        localPaymentsConfig,
+        codConfig,
+        shippingConfig,
+        storageConfig,
         mailConfig,
         throttleConfig,
         logConfig,
@@ -128,6 +131,7 @@ jwtConfig,
     ReviewsModule,
     ChatModule,
     NotificationModule,
+    ShippingModule,
   ],
   providers: [
     PrismaService,

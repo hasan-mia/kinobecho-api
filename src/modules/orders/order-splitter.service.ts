@@ -15,6 +15,7 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { ProductPricingService } from '../product/pricing/product-pricing.service';
 import { CouponsService } from '../coupons/coupons.service';
+import { ShippingRateService } from '../shipping/shipping-rate.service';
 import { CheckoutDto } from './dto/order.dto';
 
 type CartItemWithProduct = Prisma.CartItemGetPayload<{
@@ -43,6 +44,7 @@ export class OrderSplitterService {
     private readonly prisma: PrismaService,
     private readonly pricing: ProductPricingService,
     private readonly coupons: CouponsService,
+    private readonly shipping: ShippingRateService,
   ) {}
 
   async splitCartIntoOrders(
@@ -161,7 +163,20 @@ export class OrderSplitterService {
         const subtotal = subtotals.get(vendorId) ?? new Prisma.Decimal(0);
         const discountTotal =
           discountPlan.perVendor.get(vendorId) ?? new Prisma.Decimal(0);
-        const grandTotal = subtotal.minus(discountTotal);
+
+        // Shipping is charged per vendor order, from the server-side zone table.
+        const vendorItems = groups.get(vendorId) ?? [];
+        const shipping = await this.shipping.calculateFee(
+          vendorItems.map((item) => ({
+            weightGrams: item.product.weightGrams,
+            qty: item.qty,
+          })),
+          address,
+        );
+        const shippingFee = shipping.fee;
+
+        // grandTotal = subtotal - discountTotal + shippingFee
+        const grandTotal = subtotal.minus(discountTotal).plus(shippingFee);
         const saleChannel =
           lines.length > 0 &&
           lines.every((line) => line.saleChannel === SaleChannel.WHOLESALE)
@@ -191,7 +206,7 @@ export class OrderSplitterService {
             status: OrderStatus.PENDING,
             subtotal,
             discountTotal,
-            shippingFee: new Prisma.Decimal(0),
+            shippingFee,
             grandTotal,
             couponId: discountTotal.gt(0) ? discountPlan.couponId : null,
             shippingAddress,

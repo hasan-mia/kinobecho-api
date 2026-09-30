@@ -78,6 +78,26 @@ export const envValidationSchema = Joi.object({
   COD_ENABLED: Joi.boolean().default(true),
   COD_MAX_AMOUNT: Joi.number().positive().default(20000),
 
+  SHIPPING_DEFAULT_ZONE_NAME: Joi.string().default('DEFAULT'),
+
+  STEADFAST_BASE_URL: Joi.string()
+    .uri()
+    .default('https://portal.packzy.com/api/v1'),
+  STEADFAST_API_KEY: Joi.string().allow('').optional(),
+  STEADFAST_SECRET_KEY: Joi.string().allow('').optional(),
+  STEADFAST_WEBHOOK_TOKEN: Joi.string().allow('').optional(),
+
+  PATHAO_BASE_URL: Joi.string()
+    .uri()
+    .default('https://courier-api-sandbox.pathao.com'),
+  PATHAO_CLIENT_ID: Joi.string().allow('').optional(),
+  PATHAO_CLIENT_SECRET: Joi.string().allow('').optional(),
+  PATHAO_USERNAME: Joi.string().allow('').optional(),
+  PATHAO_PASSWORD: Joi.string().allow('').optional(),
+  PATHAO_STORE_ID: Joi.string().allow('').optional(),
+  PATHAO_WEBHOOK_SECRET: Joi.string().allow('').optional(),
+  PATHAO_WEBHOOK_INTEGRATION_SECRET: Joi.string().allow('').optional(),
+
   STORAGE_DRIVER: Joi.string().valid('local', 's3', 'gcs').default('local'),
   LOCAL_UPLOAD_PATH: Joi.string().default('uploads'),
   LOCAL_ASSET_URL: Joi.string().default('/uploads'),
