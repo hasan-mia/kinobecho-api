@@ -331,6 +331,70 @@ model ReturnItem {
   @@map("return_items")
 }
 
+/// A product a buyer has saved for later.
+///
+/// One row per (user, product) with a unique constraint behind it, so the
+/// "add to wishlist" button is naturally idempotent rather than something the
+/// service has to check first.
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("WishlistItemToUser_1", fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation("WishlistItemToProduct_1", fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("wishlist_items")
+}
+
+/// A buyer's question about a product, and the vendor's or platform's answer.
+///
+/// Modelled on Review: both are user-generated text that needs moderation
+/// before it is public, so they share the `ReviewStatus` lifecycle rather than
+/// inventing a second one.
+model ProductQuestion {
+  id            String          @id @default(uuid())
+  productId     String
+  product       Product         @relation("ProductToProductQuestion_1", fields: [productId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User            @relation("ProductQuestionToUser_1", fields: [userId], references: [id], onDelete: Cascade)
+  question      String
+  status        ReviewStatus    @default(PENDING)
+  /// Why a moderator rejected it. Kept so the decision is auditable and the
+  /// asker can be told why, rather than the question simply vanishing.
+  note          String?
+  moderatedById String?
+  moderatedBy   User?           @relation("ProductQuestionModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
+  /// Set once a vendor or admin has replied, so the asker can be notified and
+  /// the listing can show "answered" without a join.
+  answeredAt    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  answers       ProductAnswer[] @relation("ProductQuestionToProductAnswer_1")
+
+  @@index([productId, status])
+  @@index([userId])
+  @@map("product_questions")
+}
+
+model ProductAnswer {
+  id           String          @id @default(uuid())
+  questionId   String
+  question     ProductQuestion @relation("ProductQuestionToProductAnswer_1", fields: [questionId], references: [id], onDelete: Cascade)
+  answeredById String
+  answeredBy   User            @relation("ProductAnswerToUser_1", fields: [answeredById], references: [id], onDelete: Cascade)
+  /// Whether the reply came from the vendor who sells the product. An admin
+  /// reply is support, not the seller's own voice, and the UI says so.
+  isVendor     Boolean         @default(false)
+  answer       String
+  createdAt    DateTime        @default(now())
+
+  @@index([questionId])
+  @@map("product_answers")
+}
+
 /// Records that a PAYOUT has netted off one negative ADJUSTMENT.
 ///
 /// A refund issued after the vendor was already paid leaves the platform owing
@@ -425,6 +489,10 @@ model User {
   deviceTokens       DeviceToken[]        @relation("DeviceTokenToUser_1")
   notificationLogs   NotificationLog[]    @relation("NotificationLogToUser_1")
   returnRequests     ReturnRequest[]      @relation("ReturnRequestToBuyer_1")
+  wishlistItems      WishlistItem[]       @relation("WishlistItemToUser_1")
+  productQuestions   ProductQuestion[]    @relation("ProductQuestionToUser_1")
+  questionsModerated ProductQuestion[]    @relation("ProductQuestionModerator")
+  productAnswers     ProductAnswer[]      @relation("ProductAnswerToUser_1")
   returnDecisions    ReturnRequest[]      @relation("ReturnDecidedBy")
 
   @@index([role])
@@ -530,6 +598,8 @@ model Product {
   images          ProductImage[]     @relation("ProductToProductImage_1")
   reviews         Review[]           @relation("ProductToReview_1")
   cartItems       CartItem[]         @relation("CartItemToProduct_1")
+  wishlistItems   WishlistItem[]     @relation("WishlistItemToProduct_1")
+  questions       ProductQuestion[]  @relation("ProductToProductQuestion_1")
 
   @@index([vendorId, status])
   @@index([categoryId])

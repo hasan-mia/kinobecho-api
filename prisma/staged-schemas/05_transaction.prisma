@@ -293,6 +293,10 @@ model User {
   deviceTokens DeviceToken[] @relation("DeviceTokenToUser_1")
   notificationLogs NotificationLog[] @relation("NotificationLogToUser_1")
   returnRequests ReturnRequest[] @relation("ReturnRequestToBuyer_1")
+  wishlistItems WishlistItem[] @relation("WishlistItemToUser_1")
+  productQuestions ProductQuestion[] @relation("ProductQuestionToUser_1")
+  questionsModerated ProductQuestion[] @relation("ProductQuestionModerator")
+  productAnswers ProductAnswer[] @relation("ProductAnswerToUser_1")
   returnDecisions ReturnRequest[] @relation("ReturnDecidedBy")
   @@index([role])
   @@map("users")
@@ -372,6 +376,8 @@ model Product {
   images ProductImage[] @relation("ProductToProductImage_1")
   reviews Review[] @relation("ProductToReview_1")
   cartItems CartItem[] @relation("CartItemToProduct_1")
+  wishlistItems WishlistItem[] @relation("WishlistItemToProduct_1")
+  questions ProductQuestion[] @relation("ProductToProductQuestion_1")
   @@index([vendorId, status])
   @@index([categoryId])
   @@index([brandId])
@@ -667,4 +673,31 @@ model Brand {
   id        String    @id @default(uuid())
   products Product[] @relation("ProductToBrand_1")
   @@map("brands")
+}
+
+model ProductAnswer {
+  id           String          @id @default(uuid())
+  answeredById String
+  answeredBy User @relation("ProductAnswerToUser_1", fields: [answeredById], references: [id], onDelete: Cascade)
+  @@map("product_answers")
+}
+
+model ProductQuestion {
+  id            String          @id @default(uuid())
+  productId     String
+  userId        String
+  moderatedById String?
+  product Product @relation("ProductToProductQuestion_1", fields: [productId], references: [id], onDelete: Cascade)
+  user User @relation("ProductQuestionToUser_1", fields: [userId], references: [id], onDelete: Cascade)
+  moderatedBy User? @relation("ProductQuestionModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
+  @@map("product_questions")
+}
+
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  user User @relation("WishlistItemToUser_1", fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation("WishlistItemToProduct_1", fields: [productId], references: [id], onDelete: Cascade)
+  @@map("wishlist_items")
 }

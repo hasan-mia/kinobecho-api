@@ -51,6 +51,9 @@ export const PERMISSIONS = [
   { key: 'shipping:manage', description: 'Manage shipping zones and rates' },
   { key: 'shipment:create', description: 'Create and update shipments' },
 
+  // Product Q&A
+  { key: 'qa:moderate', description: 'Approve or reject product questions' },
+
   // Brands
   { key: 'brand:manage', description: 'Create, edit and deactivate brands' },
 

@@ -120,6 +120,19 @@ const TEMPLATES: Record<string, string> = {
     <p>A refund of <strong>{{currency}} {{amount}}</strong> was issued for return <strong>#{{returnNumber}}</strong> on order <strong>#{{orderNumber}}</strong>.</p>
     <p>{{adjustmentNote}}</p>
   `,
+  'product-question': `
+    <p>Hi {{name}},</p>
+    <p>A buyer asked about <strong>{{productName}}</strong>:</p>
+    <blockquote>{{question}}</blockquote>
+    <p>Asked by {{askerName}}. Please answer from your dashboard.</p>
+  `,
+  'product-answer': `
+    <p>Hi {{name}},</p>
+    <p>Your question about <strong>{{productName}}</strong> was answered.</p>
+    <blockquote>{{question}}</blockquote>
+    <p><strong>{{answeredBy}} wrote:</strong></p>
+    <blockquote>{{answer}}</blockquote>
+  `,
   'low-stock-alert': `
     <p>Hi {{name}},</p>
     <p>Stock is running low for one of your products.</p>

@@ -163,6 +163,8 @@ kinobecho-api/
 │       ├── returns/            # Return requests, decisions, restock, refunds
 │       ├── search/             # Meilisearch index, sync queue, Postgres fallback
 │       ├── brand/              # Brand catalogue (admin CRUD)
+│       ├── wishlist/           # Saved products, live price and stock
+│       ├── questions/          # Product Q&A with moderation
 │       ├── chat/               # Socket.io gateway + REST, Redis adapter
 │       ├── notification/       # Mail/push providers, BullMQ promo campaigns
 │       └── health/             # Liveness/readiness (DB, Redis)
@@ -640,6 +642,39 @@ service answers from Postgres with the identical response shape. The fallback is
 honest about its limits: `ILIKE` matches substrings (so "phone" also finds
 "headphone") and its facet counts describe the matched rows, not the whole
 result set. `engine` in the response says which path answered.
+
+### Wishlist — `wishlist`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/wishlist/{productId}` | Save a product — idempotent |
+| `DELETE` | `/wishlist/{productId}` | Remove — no-op if not saved |
+| `GET` | `/wishlist` | The current buyer's wishlist, paginated |
+
+Each entry carries the product's basic info, the **current** resolved price as a
+string, and an `inStock` flag summed across variants. The price is resolved on
+read rather than stored, because a saved item is a pointer and a price frozen at
+save time would be wrong the moment the vendor changes it. A product that is
+later archived keeps its row — a temporary stock-out should not destroy a
+saved list — and is simply reported as `available: false`.
+
+### Product Q&A — `questions`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/products/{productId}/questions` | Customer — ask (rate limited to 5/hour) |
+| `GET` | `/products/{productId}/questions` | Public — approved questions with answers |
+| `GET` | `/questions/mine` | The asker's own questions, including pending |
+| `POST` | `/questions/{id}/answers` | Owning vendor or admin |
+| `PATCH` | `/questions/{id}/moderate` | Admin (`qa:moderate`) — approve or reject (reason required) |
+
+Questions start `PENDING`, exactly like reviews, because unmoderated user text
+is not published to a product page. **Answering a pending question approves
+it**: the vendor has vouched for the text by replying to it, and a second
+moderation pass would hide a question the seller is willing to stand behind.
+Answers are marked `isVendor` so the UI can tell the seller's own voice from
+platform support. The vendor is notified on a new question, the asker on a new
+answer; a notification failure never rolls back the question or answer.
 
 ### Reviews — `reviews`
 

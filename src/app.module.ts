@@ -56,6 +56,8 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { SearchModule } from './modules/search/search.module';
 import { BrandModule } from './modules/brand/brand.module';
+import { WishlistModule } from './modules/wishlist/wishlist.module';
+import { QuestionsModule } from './modules/questions/questions.module';
 import { ReturnsModule } from './modules/returns/returns.module';
 import { ProcessorsModule } from './processors/processors.module';
 import { HealthModule } from './modules/health/health.module';
@@ -149,6 +151,8 @@ import { HealthModule } from './modules/health/health.module';
     ShippingModule,
     SearchModule,
     BrandModule,
+    WishlistModule,
+    QuestionsModule,
     ReturnsModule,
     ProcessorsModule,
   ],

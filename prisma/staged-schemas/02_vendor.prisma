@@ -276,6 +276,10 @@ model User {
   deviceTokens DeviceToken[] @relation("DeviceTokenToUser_1")
   notificationLogs NotificationLog[] @relation("NotificationLogToUser_1")
   returnRequests ReturnRequest[] @relation("ReturnRequestToBuyer_1")
+  wishlistItems WishlistItem[] @relation("WishlistItemToUser_1")
+  productQuestions ProductQuestion[] @relation("ProductQuestionToUser_1")
+  questionsModerated ProductQuestion[] @relation("ProductQuestionModerator")
+  productAnswers ProductAnswer[] @relation("ProductAnswerToUser_1")
   returnDecisions ReturnRequest[] @relation("ReturnDecidedBy")
   @@index([role])
   @@map("users")
@@ -415,4 +419,27 @@ model ReturnRequest {
   vendor Vendor @relation("ReturnRequestToVendor_1", fields: [vendorId], references: [id], onDelete: Restrict)
   decidedBy User? @relation("ReturnDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
   @@map("return_requests")
+}
+
+model ProductAnswer {
+  id           String          @id @default(uuid())
+  answeredById String
+  answeredBy User @relation("ProductAnswerToUser_1", fields: [answeredById], references: [id], onDelete: Cascade)
+  @@map("product_answers")
+}
+
+model ProductQuestion {
+  id            String          @id @default(uuid())
+  userId        String
+  moderatedById String?
+  user User @relation("ProductQuestionToUser_1", fields: [userId], references: [id], onDelete: Cascade)
+  moderatedBy User? @relation("ProductQuestionModerator", fields: [moderatedById], references: [id], onDelete: SetNull)
+  @@map("product_questions")
+}
+
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String
+  user User @relation("WishlistItemToUser_1", fields: [userId], references: [id], onDelete: Cascade)
+  @@map("wishlist_items")
 }
