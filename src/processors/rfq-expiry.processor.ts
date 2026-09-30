@@ -76,7 +76,11 @@ export class RfqExpiryProcessor extends WorkerHost implements OnModuleInit {
       }
 
       quotationCount += 1;
-      this.notify(quotation.vendor.userId, quotation.rfq.title);
+      this.notify(
+        quotation.vendor.userId,
+        'Your quotation has expired',
+        `Your offer on "${quotation.rfq.title}" is no longer being considered`,
+      );
     }
 
     // Requests past their own deadline, plus any still-open request whose last
@@ -86,7 +90,16 @@ export class RfqExpiryProcessor extends WorkerHost implements OnModuleInit {
         status: { in: [RfqStatus.OPEN, RfqStatus.QUOTED] },
         OR: [
           { expiresAt: { lte: now } },
-          { quotations: { none: { status: QuotationStatus.SENT } } },
+          // Every offer this request attracted has lapsed or been turned down.
+          // `some: {}` matters: a request that nobody has quoted on yet is not
+          // spent, it is simply unanswered, and closing it here would retire
+          // every request a minute after it was posted.
+          {
+            quotations: {
+              some: {},
+              none: { status: QuotationStatus.SENT },
+            },
+          },
         ],
       },
       select: { id: true, title: true, buyerId: true },
@@ -106,7 +119,11 @@ export class RfqExpiryProcessor extends WorkerHost implements OnModuleInit {
       }
 
       rfqCount += 1;
-      this.notify(rfq.buyerId, rfq.title);
+      this.notify(
+        rfq.buyerId,
+        'Request for quotation closed',
+        `"${rfq.title}" is no longer open for quotations`,
+      );
     }
 
     this.logger.log(
@@ -123,14 +140,9 @@ export class RfqExpiryProcessor extends WorkerHost implements OnModuleInit {
    * next pass would find nothing to do, so retrying the notification is the
    * only thing that would be lost by letting this throw.
    */
-  private notify(userId: string, rfqTitle: string): void {
+  private notify(userId: string, title: string, body: string): void {
     void this.notifications
-      .sendPushToUser(
-        userId,
-        'Request for quotation closed',
-        `"${rfqTitle}" is no longer open for quotations`,
-        {},
-      )
+      .sendPushToUser(userId, title, body, {})
       .catch((error: Error) => {
         this.logger.warn(`RFQ expiry notification failed: ${error.message}`);
       });
