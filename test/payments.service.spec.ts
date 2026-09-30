@@ -128,6 +128,8 @@ describe('PaymentsService cash on delivery', () => {
           paymentMethod: PaymentGateway.COD,
           paymentStatus: PaymentStatus.PENDING_COD,
           status: OrderStatus.CONFIRMED,
+          // COD is not time-bound, so the expiry deadline must be cleared.
+          expiresAt: null,
         },
       });
 

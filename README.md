@@ -272,6 +272,7 @@ npm run start:dev
 | `SSLCOMMERZ_STORE_ID` / `SSLCOMMERZ_STORE_PASSWORD` / `SSLCOMMERZ_API_KEY` / `SSLCOMMERZ_API_SECRET` / `SSLCOMMERZ_SANDBOX` | SSLCommerz | — |
 | `COD_ENABLED` | Master switch for cash on delivery | `true` |
 | `COD_MAX_AMOUNT` | Max order total (BDT) payable on delivery | `20000` |
+| `ORDER_PAYMENT_TTL_MINUTES` | Minutes an unpaid online order stays payable before auto-cancellation (COD exempt) | `30` |
 | **Shipping / couriers** |||
 | `SHIPPING_DEFAULT_ZONE_NAME` | Zone used when no district matches | `DEFAULT` |
 | `STEADFAST_BASE_URL` | Steadfast API root | `https://portal.packzy.com/api/v1` |

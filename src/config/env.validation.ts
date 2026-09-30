@@ -78,6 +78,9 @@ export const envValidationSchema = Joi.object({
   COD_ENABLED: Joi.boolean().default(true),
   COD_MAX_AMOUNT: Joi.number().positive().default(20000),
 
+  // How long an unpaid online order stays payable before auto-cancellation.
+  ORDER_PAYMENT_TTL_MINUTES: Joi.number().integer().positive().default(30),
+
   SHIPPING_DEFAULT_ZONE_NAME: Joi.string().default('DEFAULT'),
 
   STEADFAST_BASE_URL: Joi.string()

@@ -13,6 +13,7 @@ import {
   jwtConfig,
   localPaymentsConfig,
   codConfig,
+  orderConfig,
   shippingConfig,
   storageConfig,
   mailConfig,
@@ -49,6 +50,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
+import { ProcessorsModule } from './processors/processors.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -65,7 +67,9 @@ import { HealthModule } from './modules/health/health.module';
         redisConfig,
         jwtConfig,
         localPaymentsConfig,
-        codConfig,
+  codConfig,
+  orderConfig,
+        orderConfig,
         shippingConfig,
         storageConfig,
         mailConfig,
@@ -132,6 +136,7 @@ import { HealthModule } from './modules/health/health.module';
     ChatModule,
     NotificationModule,
     ShippingModule,
+    ProcessorsModule,
   ],
   providers: [
     PrismaService,

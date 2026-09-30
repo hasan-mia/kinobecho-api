@@ -224,6 +224,9 @@ export class PaymentsService {
           paymentMethod: PaymentGateway.COD,
           paymentStatus: PaymentStatus.PENDING_COD,
           status: OrderStatus.CONFIRMED,
+          // COD is not time-bound, so the order must not be picked up by the
+          // expiry sweep once it is confirmed for delivery.
+          expiresAt: null,
         },
       });
 
@@ -283,6 +286,16 @@ export class PaymentsService {
         });
 
         if (order) {
+          // A cancelled order must never be revived by a late webhook. The money
+          // is genuinely in, so the honest outcome is: keep the payment recorded
+          // as COMPLETED (it happened) and raise a follow-up refund the finance
+          // team can execute, rather than silently marking the order paid.
+          if (order.status === OrderStatus.CANCELLED) {
+            await this.raiseRefundForCancelledOrder(tx, order, completed, input);
+
+            return completed;
+          }
+
           // An online gateway settling means the money is in, regardless of the
           // order's fulfilment status. COD never reaches here: it has no webhook.
           await tx.order.update({
@@ -310,6 +323,58 @@ export class PaymentsService {
 
       return completed;
     });
+  }
+
+  /**
+   * Handles a gateway webhook that lands after the order was cancelled — most
+   * likely the expiry sweep cancelled the order seconds before the buyer's
+   * payment cleared at the gateway.
+   *
+   * The incoming payment is already COMPLETED by the caller (the money really did
+   * arrive; falsifying that would corrupt the ledger), so the refund is raised as
+   * a separate PENDING row rather than by rewriting history. `externalRef` is
+   * derived from the payment id, and that column is unique, so a gateway retry
+   * cannot enqueue a second refund for the same payment.
+   *
+   * The order's `paymentStatus` is deliberately left alone: it was never PAID.
+   */
+  private async raiseRefundForCancelledOrder(
+    tx: Prisma.TransactionClient,
+    order: { id: string; orderNumber: string; buyerId: string },
+    payment: { id: string; amount: Prisma.Decimal; currency: string; gateway: PaymentGateway | null },
+    input: ConfirmPaymentInput,
+  ): Promise<void> {
+    const externalRef = `auto-refund:${payment.id}`;
+
+    const existing = await tx.transaction.findUnique({
+      where: { externalRef },
+    });
+
+    if (!existing) {
+      await tx.transaction.create({
+        data: {
+          type: TransactionType.REFUND,
+          direction: TransactionDirection.DEBIT,
+          status: TransactionStatus.PENDING,
+          amount: payment.amount,
+          currency: payment.currency,
+          fromType: 'PLATFORM',
+          fromId: null,
+          toType: 'CUSTOMER',
+          toId: order.buyerId,
+          gateway: payment.gateway,
+          orderId: order.id,
+          externalRef,
+          note: `Auto-refund: payment received after order ${order.orderNumber} was cancelled`,
+        },
+      });
+    }
+
+    this.logger.warn(
+      `Payment ${input.externalRef} (${input.amount ?? payment.amount} ${payment.currency}) ` +
+        `arrived for order ${order.orderNumber}, which is already CANCELLED. ` +
+        `Refund ${externalRef} raised for manual processing; the order was NOT revived.`,
+    );
   }
 
   /**

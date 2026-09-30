@@ -454,6 +454,7 @@ model Order {
   paymentMethod     PaymentGateway?
   paymentStatus     PaymentStatus        @default(UNPAID)
   shippingAddress   Json
+  expiresAt         DateTime?
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   items OrderItem[] @relation("OrderToOrderItem_1")
@@ -464,6 +465,7 @@ model Order {
   @@index([orderGroupId])
   @@index([buyerId, status])
   @@index([vendorId, status])
+  @@index([status, paymentStatus, expiresAt])
   @@map("orders")
 }
 

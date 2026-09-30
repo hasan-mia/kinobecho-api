@@ -12,6 +12,7 @@ import {
   SaleType,
 } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
 import { ProductPricingService } from '../product/pricing/product-pricing.service';
 import { CouponsService } from '../coupons/coupons.service';
@@ -45,7 +46,13 @@ export class OrderSplitterService {
     private readonly pricing: ProductPricingService,
     private readonly coupons: CouponsService,
     private readonly shipping: ShippingRateService,
+    private readonly configService: ConfigService,
   ) {}
+
+  /** Config-driven fallback so a missing value still yields the documented 30. */
+  private paymentTtlMinutes(): number {
+    return this.configService.get<number>('order.paymentTtlMinutes') ?? 30;
+  }
 
   async splitCartIntoOrders(
     userId: string,
@@ -210,6 +217,11 @@ export class OrderSplitterService {
             grandTotal,
             couponId: discountTotal.gt(0) ? discountPlan.couponId : null,
             shippingAddress,
+            // Start the payment clock. Cleared to null if the buyer picks COD,
+            // which is not time-bound.
+            expiresAt: new Date(
+              Date.now() + this.paymentTtlMinutes() * 60_000,
+            ),
             items: {
               create: lines.map((line) => ({
                 productVariantId: line.productVariantId,

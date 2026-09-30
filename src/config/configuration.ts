@@ -54,6 +54,13 @@ export const codConfig = registerAs('cod', () => ({
   maxAmount: Number(process.env.COD_MAX_AMOUNT ?? 20000),
 }));
 
+// Order lifecycle. paymentTtlMinutes is how long a freshly placed order stays
+// payable before the expiry sweep cancels it and returns the reserved stock.
+// COD orders are exempt: their expiresAt is cleared when COD is selected.
+export const orderConfig = registerAs('order', () => ({
+  paymentTtlMinutes: Number(process.env.ORDER_PAYMENT_TTL_MINUTES ?? 30),
+}));
+
 export const localPaymentsConfig = registerAs('localPayments', () => ({
   bkash: {
     appKey: process.env.BKASH_APP_KEY,

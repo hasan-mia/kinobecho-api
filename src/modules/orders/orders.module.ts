@@ -9,6 +9,7 @@ import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { OrderSplitterService } from './order-splitter.service';
 import { OrderStatusService } from '../shipping/order-status.service';
+import { OrderCancellationService } from './order-cancellation.service';
 import { ShippingRateService } from '../shipping/shipping-rate.service';
 
 /**
@@ -31,12 +32,14 @@ import { ShippingRateService } from '../shipping/shipping-rate.service';
     OrdersService,
     OrderSplitterService,
     OrderStatusService,
+    OrderCancellationService,
     ShippingRateService,
   ],
   exports: [
     OrdersService,
     OrderSplitterService,
     OrderStatusService,
+    OrderCancellationService,
     ShippingRateService,
   ],
 })

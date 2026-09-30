@@ -4,25 +4,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Order, OrderStatus, Prisma, UserRole } from '@prisma/client';
+import { Order, OrderStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { PaymentsService } from '../payments/payments.service';
+import { OrderCancellationService } from '../orders/order-cancellation.service';
 
 /**
  * Status transitions follow the enum order:
  * PENDING -> CONFIRMED -> PROCESSING -> SHIPPED -> DELIVERED,
  * with CANCELLED reachable from PENDING/CONFIRMED only.
  */
-export const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  [OrderStatus.PENDING]: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-  [OrderStatus.CONFIRMED]: [OrderStatus.PROCESSING, OrderStatus.CANCELLED],
-  [OrderStatus.PROCESSING]: [OrderStatus.SHIPPED],
-  [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED],
-  [OrderStatus.DELIVERED]: [OrderStatus.RETURNED],
-  [OrderStatus.CANCELLED]: [],
-  [OrderStatus.RETURNED]: [],
-};
+export { ALLOWED_TRANSITIONS } from '../orders/order-status.constants';
+
+import { ALLOWED_TRANSITIONS } from '../orders/order-status.constants';
 
 export interface MoveOrderStatusOptions {
   note?: string;
@@ -43,6 +38,7 @@ export class OrderStatusService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
+    private readonly cancellation: OrderCancellationService,
   ) {}
 
   /** Vendor- or admin-initiated change; enforces ownership. */
@@ -103,6 +99,22 @@ export class OrderStatusService {
       );
     }
 
+    // Cancellation owns more than the status flip — restock, coupon release and
+    // failing open payment rows — so it is delegated to the single service that
+    // guarantees all of it happens together. That service re-reads the order
+    // inside its own transaction, so the state checked above may be stale by the
+    // time it commits; its re-read is the authoritative one.
+    if (toStatus === OrderStatus.CANCELLED) {
+      await this.cancellation.cancelOrder(
+        order.id,
+        actorId,
+        note ?? 'Order cancelled',
+      );
+
+      // Preserve the contract that a status change resolves to the updated order.
+      return this.prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.order.update({
         where: { id: order.id },
@@ -119,11 +131,6 @@ export class OrderStatusService {
         },
       });
 
-      // Cancelling returns the reserved stock to the variant pool.
-      if (toStatus === OrderStatus.CANCELLED) {
-        await this.restoreStock(tx, order);
-      }
-
       // Delivery is when COD money is collected.
       if (toStatus === OrderStatus.DELIVERED) {
         await this.payments.settleCodOnDelivery(tx, order);
@@ -131,22 +138,5 @@ export class OrderStatusService {
 
       return updated;
     });
-  }
-
-  private async restoreStock(
-    tx: Prisma.TransactionClient,
-    order: Order,
-  ) {
-    const items = await tx.orderItem.findMany({
-      where: { orderId: order.id },
-      select: { productVariantId: true, qty: true },
-    });
-
-    for (const item of items) {
-      await tx.productVariant.update({
-        where: { id: item.productVariantId },
-        data: { stock: { increment: item.qty } },
-      });
-    }
   }
 }
