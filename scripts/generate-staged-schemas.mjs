@@ -93,6 +93,7 @@ const STAGE_OF_MODEL = {
   ProductTranslation: 17,
   CategoryTranslation: 17,
   BrandTranslation: 17,
+  SocialAccount: 18,
 };
 
 const STAGE_FILES = [
@@ -113,6 +114,7 @@ const STAGE_FILES = [
   [15, '15_cms', 'CMS banners + home sections'],
   [16, '16_flash_sale', 'Flash sales + sale items'],
   [17, '17_i18n', 'Product / category / brand translations'],
+  [18, '18_social_auth', 'Social accounts (Google / Facebook sign-in)'],
 ];
 
 const SCALARS = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt']);

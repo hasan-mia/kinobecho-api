@@ -238,6 +238,11 @@ enum FlashSaleItemStatus {
   REJECTED
 }
 
+enum SocialProvider {
+  GOOGLE
+  FACEBOOK
+}
+
 // --- MODELS ---
 
 model Address {
@@ -353,6 +358,7 @@ model User {
   questionsModerated ProductQuestion[] @relation("ProductQuestionModerator")
   productAnswers ProductAnswer[] @relation("ProductAnswerToUser_1")
   returnDecisions ReturnRequest[] @relation("ReturnDecidedBy")
+  socialAccounts SocialAccount[] @relation("SocialAccountToUser_1")
   @@index([role])
   @@map("users")
 }
@@ -1093,4 +1099,11 @@ model ProductTranslation {
   productId   String
   product Product @relation("ProductToProductTranslation_1", fields: [productId], references: [id], onDelete: Cascade)
   @@map("product_translations")
+}
+
+model SocialAccount {
+  id             String         @id @default(uuid())
+  userId         String
+  user User @relation("SocialAccountToUser_1", fields: [userId], references: [id], onDelete: Cascade)
+  @@map("social_accounts")
 }

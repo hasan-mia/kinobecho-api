@@ -46,6 +46,21 @@ export const stripeConfig = registerAs('stripe', () => ({
   publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
 }));
 
+// Social sign-in. All three are optional so that a deployment without social
+// login still boots; the endpoints answer 503 rather than failing at startup,
+// since a missing provider credential should not take the rest of the API down.
+export const socialAuthConfig = registerAs('socialAuth', () => ({
+  // A web client id and an Android/iOS client id are all legitimately accepted,
+  // and a token minted for one platform must not be refused on another, so the
+  // audience is a set rather than a single value.
+  googleClientIds: (process.env.GOOGLE_CLIENT_IDS ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean),
+  facebookAppId: process.env.FACEBOOK_APP_ID,
+  facebookAppSecret: process.env.FACEBOOK_APP_SECRET,
+}));
+
 // Cash on delivery. COD_ENABLED is the master switch exposed by
 // GET /payments/methods; COD_MAX_AMOUNT caps the order total that may be paid
 // on delivery, so vendors cannot be asked to collect an unbounded amount.

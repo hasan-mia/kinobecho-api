@@ -2,6 +2,7 @@ import { Controller, Post, Body, Request, HttpCode } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { FacebookAuthDto, GoogleAuthDto } from './dto/social-auth.dto';
 import {
   RequestOtpDto,
   ResetPasswordDto,
@@ -86,6 +87,39 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Public()
+  @Post('google')
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 900000, limit: 5 } })
+  @ApiOperation({
+    summary: 'Sign in or register with a Google ID token',
+    description:
+      'Links to an existing account when Google asserts an email that already ' +
+      'belongs to one, otherwise creates a passwordless customer account.',
+  })
+  @ApiBody({ type: GoogleAuthDto })
+  @ApiResponse({ status: 200, description: 'Signed in; tokens issued' })
+  @ApiResponse({ status: 401, description: 'Invalid token, or email not verified' })
+  @ApiResponse({ status: 503, description: 'Google sign-in is not configured' })
+  async google(@Body() dto: GoogleAuthDto) {
+    return this.authService.loginWithGoogle(dto.idToken);
+  }
+
+  @Public()
+  @Post('facebook')
+  @HttpCode(200)
+  @Throttle({ default: { ttl: 900000, limit: 5 } })
+  @ApiOperation({
+    summary: 'Sign in or register with a Facebook user access token',
+  })
+  @ApiBody({ type: FacebookAuthDto })
+  @ApiResponse({ status: 200, description: 'Signed in; tokens issued' })
+  @ApiResponse({ status: 401, description: 'Invalid token, or issued for another app' })
+  @ApiResponse({ status: 503, description: 'Facebook sign-in is not configured' })
+  async facebook(@Body() dto: FacebookAuthDto) {
+    return this.authService.loginWithFacebook(dto.accessToken);
   }
 
   @Public()

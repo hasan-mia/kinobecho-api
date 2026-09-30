@@ -45,6 +45,7 @@ STAGES=(
   "15_cms:cms"
   "16_flash_sale:flash_sale"
   "17_i18n:i18n"
+  "18_social_auth:social_auth"
 )
 
 # Prisma migration lock file (single canonical lock per provider)
@@ -102,10 +103,15 @@ fi
 done
 
 # The final staged schema must produce no diff against the live schema.
+# The last stage is read from STAGES rather than hardcoded: pinning a stage
+# number here meant that adding a stage silently stopped the drift check from
+# ever comparing anything, and it failed quietly instead of loudly.
+last_stage_file="${STAGES[${#STAGES[@]} - 1]}"
+last_stage_file="${last_stage_file%%:*}"
 final_sql="$(mktemp)"
 trap 'rm -f "$final_sql"' EXIT
 npx prisma migrate diff \
-  --from-schema-datamodel "$STAGED_DIR/17_i18n.prisma" \
+  --from-schema-datamodel "$STAGED_DIR/${last_stage_file}.prisma" \
   --to-schema-datamodel "$SCHEMA" \
   --script >"$final_sql" 2>/dev/null || true
 

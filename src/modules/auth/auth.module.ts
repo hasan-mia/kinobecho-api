@@ -9,6 +9,8 @@ import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
 import { PrismaModule } from '../../database/prisma.module';
 import { OtpService } from './otp.service';
 import { NotificationModule } from '../notification/notification.module';
+import { GoogleAuthProvider } from './social/google-auth.provider';
+import { FacebookAuthProvider } from './social/facebook-auth.provider';
 
 @Module({
   imports: [
@@ -19,7 +21,14 @@ import { NotificationModule } from '../notification/notification.module';
     ConfigModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, OtpService, JwtStrategy, JwtRefreshStrategy],
+  providers: [
+    AuthService,
+    OtpService,
+    JwtStrategy,
+    JwtRefreshStrategy,
+    GoogleAuthProvider,
+    FacebookAuthProvider,
+  ],
   exports: [AuthService, OtpService],
 })
 export class AuthModule {}

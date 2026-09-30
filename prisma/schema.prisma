@@ -24,6 +24,16 @@ enum UserRole {
   CUSTOMER
 }
 
+/// An external identity provider this store accepts sign-in from.
+///
+/// The provider is part of the composite unique key rather than a free string,
+/// so the same subject id at Google and at Facebook stay two distinct
+/// accounts and one provider's user id can never be replayed against another.
+enum SocialProvider {
+  GOOGLE
+  FACEBOOK
+}
+
 enum KycStatus {
   PENDING
   APPROVED
@@ -546,9 +556,35 @@ model User {
   questionsModerated ProductQuestion[]    @relation("ProductQuestionModerator")
   productAnswers     ProductAnswer[]      @relation("ProductAnswerToUser_1")
   returnDecisions    ReturnRequest[]      @relation("ReturnDecidedBy")
+  socialAccounts     SocialAccount[]      @relation("SocialAccountToUser_1")
 
   @@index([role])
   @@map("users")
+}
+
+/// A verified identity at an external provider, linked to a local user.
+///
+/// `providerUserId` is the provider's own stable subject id, never the email:
+/// emails get reassigned and recycled at both providers, so keying on one would
+/// let a later holder of a recycled address inherit the previous account.
+model SocialAccount {
+  id             String         @id @default(uuid())
+  userId         String
+  user           User           @relation("SocialAccountToUser_1", fields: [userId], references: [id], onDelete: Cascade)
+  provider       SocialProvider
+  providerUserId String
+  /// The address the provider reported at link time, recorded for display and
+  /// support. It is never the key: a user may change it at the provider, and a
+  /// stale copy here must not decide who a returning visitor is.
+  email          String?
+  createdAt      DateTime       @default(now())
+
+  /// One provider identity maps to at most one local account. This is the
+  /// constraint that makes a replayed token resolve to the same user instead of
+  /// minting a second account.
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("social_accounts")
 }
 
 model Vendor {

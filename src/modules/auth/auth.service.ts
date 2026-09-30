@@ -10,6 +10,20 @@ import { addDays } from 'date-fns';
 import { OtpPurpose, UserRole } from '@prisma/client';
 import { OtpService } from './otp.service';
 import { normalizeBdPhone } from '../../common/utils/phone.util';
+import { GoogleAuthProvider } from './social/google-auth.provider';
+import { FacebookAuthProvider } from './social/facebook-auth.provider';
+import { SocialIdentity } from './social/social-identity.interface';
+
+/** Prisma's code for a unique-constraint violation. */
+const UNIQUE_VIOLATION = 'P2002';
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === UNIQUE_VIOLATION
+  );
+}
 
 @Injectable()
 export class AuthService {
@@ -18,6 +32,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly otp: OtpService,
+    private readonly google: GoogleAuthProvider,
+    private readonly facebook: FacebookAuthProvider,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -146,6 +162,181 @@ export class AuthService {
       },
       ...tokens,
     };
+  }
+
+  /**
+   * Signs in (or registers) a caller through Google.
+   *
+   * The token is verified before anything is read from or written to the
+   * database, so a forged or misdirected token cannot reach the account
+   * resolution below.
+   */
+  async loginWithGoogle(idToken: string) {
+    return this.resolveSocialIdentity(await this.google.verify(idToken));
+  }
+
+  /** Signs in (or registers) a caller through Facebook. */
+  async loginWithFacebook(accessToken: string) {
+    return this.resolveSocialIdentity(await this.facebook.verify(accessToken));
+  }
+
+  /**
+   * Turns a verified provider identity into a session.
+   *
+   * Three outcomes, in order:
+   *   1. the provider identity is already linked — sign that user in;
+   *   2. the provider vouches for an email that matches a local account — link
+   *      and sign in, so one person does not end up with two accounts;
+   *   3. otherwise create a passwordless CUSTOMER and sign in.
+   *
+   * A soft-deleted local account is refused in cases 1 and 2 rather than
+   * resurrected: honouring the link would hand a closed account back to
+   * whoever holds the provider identity.
+   */
+  private async resolveSocialIdentity(identity: SocialIdentity) {
+    const linked = await this.prisma.socialAccount.findUnique({
+      where: {
+        provider_providerUserId: {
+          provider: identity.provider,
+          providerUserId: identity.providerUserId,
+        },
+      },
+      include: { user: true },
+    });
+
+    if (linked) {
+      this.assertUsable(linked.user);
+      return this.issueSession(linked.user);
+    }
+
+    // Only a provider-asserted address may match a local account. Keying on an
+    // unverified one would let anyone mint an address at a provider and claim
+    // whichever local account happens to hold it.
+    const byEmail =
+      identity.email && identity.emailVerified
+        ? await this.findUserByEmail(identity.email)
+        : null;
+
+    if (byEmail) {
+      this.assertUsable(byEmail);
+      await this.link(identity, byEmail.id);
+      return this.issueSession(byEmail);
+    }
+
+    const created = await this.createSocialUser(identity);
+    return this.issueSession(created);
+  }
+
+  /**
+   * Matches on email case-insensitively.
+   *
+   * Nothing in the codebase lowercases addresses, and Postgres unique indexes
+   * are case-sensitive, so an exact match would treat `A@B.com` and `a@b.com`
+   * as two people — a provider returning a different casing than the address
+   * was registered with would then mint a duplicate account.
+   */
+  private findUserByEmail(email: string) {
+    return this.prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    });
+  }
+
+  private assertUsable(user: { id: string; deletedAt: Date | null }): void {
+    if (user.deletedAt) {
+      throw new UnauthorizedException('This account is no longer available');
+    }
+  }
+
+  /**
+   * Records the link, tolerating a concurrent first sign-in.
+   *
+   * Two requests for the same new identity can both reach this point before
+   * either commits. The unique index on [provider, providerUserId] is what
+   * actually decides the winner; the loser re-reads and adopts that link rather
+   * than surfacing a constraint error to someone who did nothing wrong.
+   */
+  private async link(identity: SocialIdentity, userId: string) {
+    try {
+      await this.prisma.socialAccount.create({
+        data: {
+          userId,
+          provider: identity.provider,
+          providerUserId: identity.providerUserId,
+          email: identity.email,
+        },
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+
+      const winner = await this.prisma.socialAccount.findUnique({
+        where: {
+          provider_providerUserId: {
+            provider: identity.provider,
+            providerUserId: identity.providerUserId,
+          },
+        },
+      });
+
+      if (!winner || winner.userId !== userId) {
+        // Someone else holds this provider identity and is not the account we
+        // matched by email. Linking anyway would merge two people's accounts.
+        throw new ConflictException(
+          'This social account is already linked to a different user',
+        );
+      }
+    }
+  }
+
+  /**
+   * Creates a local account for a provider identity that matched nothing.
+   *
+   * `password` is non-nullable in the schema, so a hash of fresh random bytes
+   * stands in for it. The alternative — a hash of a known constant — would let
+   * anyone who guessed it sign in with a password, defeating the point of the
+   * account having none.
+   */
+  private async createSocialUser(identity: SocialIdentity) {
+    const userRole =
+      (await this.prisma.role.findFirst({ where: { name: 'customer' } })) ??
+      (await this.prisma.role.findFirst({ where: { name: 'user' } }));
+
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          // Null rather than a placeholder when the provider withholds the
+          // address: a fabricated one would occupy the unique email column and
+          // could collide with a real signup.
+          email: identity.emailVerified ? identity.email : null,
+          password: await argon2.hash(randomBytes(32).toString('hex')),
+          name: identity.name ?? identity.email ?? `${identity.provider} user`,
+          role: UserRole.CUSTOMER,
+          roleId: userRole?.id ?? null,
+          // The provider already proved control of this identity, which is what
+          // this flag means everywhere else in the app.
+          isVerified: true,
+        },
+      });
+
+      await this.link(identity, user.id);
+
+      return user;
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        // A concurrent request created the account, or claimed this email, first.
+        const existing = identity.email
+          ? await this.findUserByEmail(identity.email)
+          : null;
+
+        if (existing && !existing.deletedAt) {
+          await this.link(identity, existing.id);
+          return existing;
+        }
+      }
+
+      throw error;
+    }
   }
 
   async logout(userId: string) {
