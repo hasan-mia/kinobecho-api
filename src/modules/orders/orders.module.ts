@@ -5,11 +5,13 @@ import { RedisCacheModule } from '../../common/cache/redis-cache.module';
 import { ProductModule } from '../product/product.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { PayoutsModule } from '../payouts/payouts.module';
 import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { OrderSplitterService } from './order-splitter.service';
 import { OrderStatusService } from '../shipping/order-status.service';
 import { OrderCancellationService } from './order-cancellation.service';
+import { CommissionService } from '../payouts/commission.service';
 import { ShippingRateService } from '../shipping/shipping-rate.service';
 
 /**
@@ -26,6 +28,7 @@ import { ShippingRateService } from '../shipping/shipping-rate.service';
     ProductModule,
     CouponsModule,
     PaymentsModule,
+    PayoutsModule,
   ],
   controllers: [OrdersController],
   providers: [
@@ -33,6 +36,7 @@ import { ShippingRateService } from '../shipping/shipping-rate.service';
     OrderSplitterService,
     OrderStatusService,
     OrderCancellationService,
+    CommissionService,
     ShippingRateService,
   ],
   exports: [
@@ -40,6 +44,7 @@ import { ShippingRateService } from '../shipping/shipping-rate.service';
     OrderSplitterService,
     OrderStatusService,
     OrderCancellationService,
+    CommissionService,
     ShippingRateService,
   ],
 })

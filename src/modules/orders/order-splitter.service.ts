@@ -17,6 +17,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { ProductPricingService } from '../product/pricing/product-pricing.service';
 import { CouponsService } from '../coupons/coupons.service';
 import { ShippingRateService } from '../shipping/shipping-rate.service';
+import { LowStockService } from '../payouts/low-stock.service';
 import { CheckoutDto } from './dto/order.dto';
 
 type CartItemWithProduct = Prisma.CartItemGetPayload<{
@@ -47,6 +48,7 @@ export class OrderSplitterService {
     private readonly coupons: CouponsService,
     private readonly shipping: ShippingRateService,
     private readonly configService: ConfigService,
+    private readonly lowStock: LowStockService,
   ) {}
 
   /** Config-driven fallback so a missing value still yields the documented 30. */
@@ -101,6 +103,10 @@ export class OrderSplitterService {
 
     const orderGroupId = randomBytes(16).toString('hex');
     const datePart = this.orderNumberDatePart();
+
+    // Variant ids whose stock this checkout moved, checked for low-stock once
+    // the transaction commits.
+    const touchedVariantIds = new Set<string>();
 
     return this.prisma.$transaction(async (tx) => {
       const subtotals = new Map<string, Prisma.Decimal>();
@@ -201,6 +207,8 @@ export class OrderSplitterService {
               `Insufficient stock for "${line.productNameSnap}"`,
             );
           }
+
+          touchedVariantIds.add(line.productVariantId);
         }
 
         const order = await tx.order.create({
@@ -255,6 +263,33 @@ export class OrderSplitterService {
       this.logger.log(
         `Checkout ${orderGroupId} created ${created.length} order(s) for user ${userId}`,
       );
+
+      return { created, touchedVariantIds: [...touchedVariantIds] };
+    }).then(async ({ created, touchedVariantIds }) => {
+      // Low-stock alerting runs after the transaction commits, never inside it:
+      // it sends email and push over the network, and a failed notification must
+      // not roll back a paid order. Stock has already been decremented, so the
+      // check sees the true post-purchase level.
+      if (touchedVariantIds.length > 0) {
+        try {
+          const variants = await this.prisma.productVariant.findMany({
+            where: { id: { in: touchedVariantIds } },
+            select: {
+              id: true,
+              sku: true,
+              stock: true,
+              lowStockAlertAt: true,
+              product: { select: { id: true, name: true, vendorId: true } },
+            },
+          });
+
+          await this.lowStock.checkAfterStockChange(variants);
+        } catch (error) {
+          this.logger.warn(
+            `Low-stock check failed for checkout ${orderGroupId}: ${(error as Error).message}`,
+          );
+        }
+      }
 
       return created;
     });

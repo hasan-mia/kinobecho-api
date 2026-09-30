@@ -53,7 +53,14 @@ export class PayoutsService {
 
     const orders = await this.prisma.order.findMany({
       where: { id: { in: orderIds } },
-      select: { id: true, orderNumber: true, vendorId: true, grandTotal: true, status: true },
+      select: {
+        id: true,
+        orderNumber: true,
+        vendorId: true,
+        grandTotal: true,
+        status: true,
+        vendorEarning: true,
+      },
     });
 
     if (orders.length !== new Set(orderIds).size) {
@@ -93,14 +100,30 @@ export class PayoutsService {
       );
     }
 
-    const commissionFactor = new Prisma.Decimal(1).minus(
-      new Prisma.Decimal(vendor.commissionRate).div(100),
+    // Amount is the sum of the vendorEarning snapshotted on each order at
+    // delivery, NOT grandTotal x (1 - currentRate). Recomputing from the live
+    // rate would silently change what an already-delivered order is worth the
+    // moment the platform edits commissionRate, and would charge commission on
+    // shipping the vendor never received.
+    const missingSnapshot = orders.filter(
+      (order) => order.vendorEarning === null,
     );
 
+    if (missingSnapshot.length > 0) {
+      throw new BadRequestException(
+        'These orders predate commission tracking and have no vendor earning to ' +
+          'settle. Backfill them with the backfill-commission script first: ' +
+          missingSnapshot.map((order) => order.orderNumber).join(', '),
+      );
+    }
+
     const amount = orders.reduce(
-      (sum, order) => sum.add(new Prisma.Decimal(order.grandTotal).mul(commissionFactor)),
+      (sum, order) =>
+        order.vendorEarning === null
+          ? sum
+          : sum.add(new Prisma.Decimal(order.vendorEarning)),
       new Prisma.Decimal(0),
-    );
+    ).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
     const payout = await this.prisma.$transaction(async (tx) => {
       const transaction = await tx.transaction.create({

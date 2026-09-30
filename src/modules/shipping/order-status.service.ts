@@ -4,11 +4,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Order, OrderStatus, UserRole } from '@prisma/client';
+import {
+  Order,
+  OrderStatus,
+  Prisma,
+  TransactionDirection,
+  TransactionStatus,
+  TransactionType,
+  UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { PaymentsService } from '../payments/payments.service';
 import { OrderCancellationService } from '../orders/order-cancellation.service';
+import { CommissionService } from '../payouts/commission.service';
 
 /**
  * Status transitions follow the enum order:
@@ -39,6 +48,7 @@ export class OrderStatusService {
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
     private readonly cancellation: OrderCancellationService,
+    private readonly commission: CommissionService,
   ) {}
 
   /** Vendor- or admin-initiated change; enforces ownership. */
@@ -131,12 +141,78 @@ export class OrderStatusService {
         },
       });
 
-      // Delivery is when COD money is collected.
       if (toStatus === OrderStatus.DELIVERED) {
+        // Two effects, one transaction: COD is collected and the commission is
+        // snapshotted. A delivered order must never lack its commission figures,
+        // or a payout against it would be computed from whatever the rate
+        // happens to be on the day of the request.
         await this.payments.settleCodOnDelivery(tx, order);
+        await this.snapshotCommission(tx, order);
       }
 
       return updated;
+    });
+  }
+
+  /**
+   * Freezes the vendor's commission onto the order and books the matching
+   * ledger row.
+   *
+   * The rate is read from `vendor.commissionRate` *at this moment* and stored on
+   * the order. Later edits to the vendor's rate therefore cannot retroactively
+   * change what this order earned, and the COMMISSION transaction is written
+   * from the same snapshot rather than recomputed at payout time.
+   */
+  private async snapshotCommission(
+    tx: Prisma.TransactionClient,
+    order: Order,
+  ): Promise<void> {
+    // Already snapshotted: a re-delivery or a retried transition must not
+    // create a second COMMISSION row.
+    if (order.commissionAmount !== null) {
+      return;
+    }
+
+    const vendor = await tx.vendor.findUnique({
+      where: { id: order.vendorId },
+      select: { id: true, commissionRate: true },
+    });
+
+    if (!vendor) {
+      return;
+    }
+
+    const breakdown = this.commission.calculate({
+      subtotal: order.subtotal,
+      discountTotal: order.discountTotal,
+      commissionRate: vendor.commissionRate,
+    });
+
+    await tx.order.update({
+      where: { id: order.id },
+      data: {
+        commissionRate: breakdown.commissionRate,
+        commissionAmount: breakdown.commissionAmount,
+        vendorEarning: breakdown.vendorEarning,
+      },
+    });
+
+    await tx.transaction.create({
+      data: {
+        type: TransactionType.COMMISSION,
+        direction: TransactionDirection.CREDIT,
+        status: TransactionStatus.COMPLETED,
+        amount: breakdown.commissionAmount,
+        currency: 'BDT',
+        fromType: 'VENDOR',
+        fromId: order.vendorId,
+        toType: 'PLATFORM',
+        toId: null,
+        orderId: order.id,
+        vendorId: order.vendorId,
+        note: `Commission on order ${order.orderNumber}`,
+        completedAt: new Date(),
+      },
     });
   }
 }

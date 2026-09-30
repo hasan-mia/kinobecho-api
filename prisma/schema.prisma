@@ -91,6 +91,9 @@ enum TransactionType {
   PAYOUT
   REFUND
   ADJUSTMENT
+  /// Platform commission withheld from a vendor at delivery. Money moving from
+  /// VENDOR to PLATFORM, so the platform books a CREDIT.
+  COMMISSION
 }
 
 enum TransactionDirection {
@@ -448,18 +451,23 @@ model ProductPriceTier {
 }
 
 model ProductVariant {
-  id              String      @id @default(uuid())
-  productId       String
-  product         Product     @relation("ProductToProductVariant_1", fields: [productId], references: [id], onDelete: Cascade)
-  sku             String      @unique
-  attributes      Json
-  stock           Int         @default(0)
-  priceOverride   Decimal?    @db.Decimal(12, 2)
-  lowStockAlertAt Int         @default(5)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  cartItems       CartItem[]  @relation("CartItemToProductVariant_1")
-  orderItems      OrderItem[] @relation("OrderItemToProductVariant_1")
+  id                 String      @id @default(uuid())
+  productId          String
+  product            Product     @relation("ProductToProductVariant_1", fields: [productId], references: [id], onDelete: Cascade)
+  sku                String      @unique
+  attributes         Json
+  stock              Int         @default(0)
+  priceOverride      Decimal?    @db.Decimal(12, 2)
+  lowStockAlertAt    Int         @default(5)
+  /// Set the first time the vendor is warned about low stock for this variant.
+  /// Reset to null once stock recovers above the alert level, so the next
+  /// dip warns again. A date rather than a boolean because the warning is
+  /// useful to audit.
+  lowStockNotifiedAt DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  cartItems          CartItem[]  @relation("CartItemToProductVariant_1")
+  orderItems         OrderItem[] @relation("OrderItemToProductVariant_1")
 
   @@index([productId])
   @@map("product_variants")
@@ -507,6 +515,13 @@ model Order {
   discountTotal     Decimal              @default(0) @db.Decimal(12, 2)
   shippingFee       Decimal              @default(0) @db.Decimal(12, 2)
   grandTotal        Decimal              @db.Decimal(12, 2)
+  /// Commission snapshot, written once when the order reaches DELIVERED.
+  /// Null until then. These are deliberately denormalised: the rate a vendor is
+  /// charged must not move when the platform later edits commissionRate, and a
+  /// payout must reproduce the figures from the moment of delivery.
+  commissionRate    Decimal?             @db.Decimal(5, 2)
+  commissionAmount  Decimal?             @db.Decimal(12, 2)
+  vendorEarning     Decimal?             @db.Decimal(12, 2)
   couponId          String?
   coupon            Coupon?              @relation("CouponToOrder_1", fields: [couponId], references: [id], onDelete: SetNull)
   paymentMethod     PaymentGateway?

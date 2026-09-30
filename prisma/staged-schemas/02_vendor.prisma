@@ -121,6 +121,9 @@ enum TransactionType {
   PAYOUT
   REFUND
   ADJUSTMENT
+  /// Platform commission withheld from a vendor at delivery. Money moving from
+  /// VENDOR to PLATFORM, so the platform books a CREDIT.
+  COMMISSION
 }
 
 enum TransactionDirection {

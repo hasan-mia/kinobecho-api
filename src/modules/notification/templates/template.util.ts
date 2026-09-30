@@ -57,6 +57,12 @@ const TEMPLATES: Record<string, string> = {
     <div>{{{bodyHtml}}}</div>
     <p><a href="{{ctaUrl}}" class="button">{{ctaText}}</a></p>
   `,
+  'low-stock-alert': `
+    <p>Hi {{name}},</p>
+    <p>Stock is running low for one of your products.</p>
+    <p><strong>{{productName}}</strong> ({{sku}}) is down to <strong>{{stock}}</strong> unit(s), at or below your alert level of {{threshold}}.</p>
+    <p><a href="{{productUrl}}" class="button">Update Stock</a></p>
+  `,
   'otp': `
     <p>Hi {{name}},</p>
     <p>Your verification code is:</p>

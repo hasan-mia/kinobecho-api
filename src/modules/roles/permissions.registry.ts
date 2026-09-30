@@ -50,6 +50,9 @@ export const PERMISSIONS = [
   // Shipping
   { key: 'shipping:manage', description: 'Manage shipping zones and rates' },
   { key: 'shipment:create', description: 'Create and update shipments' },
+
+  // Analytics
+  { key: 'analytics:read', description: 'Read platform-wide analytics' },
 ] as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[number]['key'];
