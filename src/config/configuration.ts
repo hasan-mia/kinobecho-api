@@ -1,5 +1,16 @@
 import { registerAs } from '@nestjs/config';
 
+/**
+ * CORS_ORIGIN is a comma-separated list. Splitting without trimming leaves a
+ * leading space on every entry but the first, which never matches the `Origin`
+ * request header, so trimming is mandatory rather than cosmetic.
+ */
+export const splitCorsOrigins = (value: string | undefined | null): string[] =>
+  (value ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+
 export const appConfig = registerAs('app', () => ({
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: parseInt(process.env.PORT ?? '3000', 10),

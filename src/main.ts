@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import * as path from 'node:path';
 import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
+import { splitCorsOrigins } from './config/configuration';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -58,8 +59,20 @@ async function bootstrap() {
   );
 
   const corsOrigin = configService.get<string>('app.corsOrigin');
+  const allowedOrigins = splitCorsOrigins(corsOrigin);
+
+  if (allowedOrigins.length === 0) {
+    logger.warn(
+      'CORS_ORIGIN resolved to an empty list — CORS is disabled for every origin',
+    );
+  } else {
+    logger.log(`CORS allowed origins: ${allowedOrigins.join(', ')}`);
+  }
+
   app.enableCors({
-    origin: corsOrigin?.split(','),
+    // Fail closed rather than falling back to `*`, which browsers reject on
+    // credentialed requests anyway.
+    origin: allowedOrigins.length > 0 ? allowedOrigins : false,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-correlation-id'],
     exposedHeaders: ['x-correlation-id'],

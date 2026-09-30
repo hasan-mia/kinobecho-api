@@ -114,17 +114,19 @@ model Permission {
   key             String           @unique
   description     String?
   rolePermissions RolePermission[] @relation("PermissionToRolePermission_1")
+  @@map("permissions")
 }
 
 model RefreshToken {
   id        String   @id @default(uuid())
   tokenHash String
   userId    String
-  user User @relation("RefreshTokenToUser_1", fields: [userId], references: [id])
+  user User @relation("RefreshTokenToUser_1", fields: [userId], references: [id], onDelete: Cascade)
   revoked   Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
   @@index([userId])
+  @@map("refresh_tokens")
 }
 
 model Role {
@@ -137,26 +139,31 @@ model Role {
   auditLogs RoleAuditLog[] @relation("RoleToRoleAuditLog_1")
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+  @@map("roles")
 }
 
 model RoleAuditLog {
   id           String   @id @default(uuid())
-  actorId      String
-  actor User @relation("RoleAuditLogToUser_1", fields: [actorId], references: [id])
+  actorId      String?
+  actor User? @relation("RoleAuditLogToUser_1", fields: [actorId], references: [id], onDelete: SetNull)
   action       String
   targetRoleId String
   diff         String?
   createdAt    DateTime @default(now())
-  targetRole Role @relation("RoleToRoleAuditLog_1", fields: [targetRoleId], references: [id])
+  targetRole Role @relation("RoleToRoleAuditLog_1", fields: [targetRoleId], references: [id], onDelete: Cascade)
+  @@index([actorId])
+  @@index([targetRoleId])
+  @@map("role_audit_logs")
 }
 
 model RolePermission {
   id           String     @id @default(uuid())
   roleId       String
-  role Role @relation("RoleToRolePermission_1", fields: [roleId], references: [id])
+  role Role @relation("RoleToRolePermission_1", fields: [roleId], references: [id], onDelete: Cascade)
   permissionId String
-  permission Permission @relation("PermissionToRolePermission_1", fields: [permissionId], references: [id])
+  permission Permission @relation("PermissionToRolePermission_1", fields: [permissionId], references: [id], onDelete: Cascade)
   @@unique([roleId, permissionId])
+  @@map("role_permissions")
 }
 
 model User {

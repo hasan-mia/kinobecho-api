@@ -87,64 +87,64 @@ export class CartService {
       throw new BadRequestException('Product is not available');
     }
 
-    if (dto.productVariantId) {
-      const variant = await this.prisma.productVariant.findUnique({
-        where: { id: dto.productVariantId },
-      });
-
-      if (!variant || variant.productId !== product.id) {
-        throw new NotFoundException('Product variant not found');
-      }
-
-      if (variant.stock < dto.qty) {
-        throw new BadRequestException('Insufficient stock for the selected variant');
-      }
-    }
-
-    if (
-      product.saleType === SaleType.WHOLESALE &&
-      product.minOrderQty &&
-      dto.qty < product.minOrderQty
-    ) {
-      throw new BadRequestException(
-        `Minimum order quantity for this product is ${product.minOrderQty}`,
-      );
-    }
-
-    await this.pricing.resolveForQuantity(product.id, dto.qty);
-
     const cart = await this.getOrCreateCart(userId);
 
-    const existing = await this.prisma.cartItem.findFirst({
-      where: {
-        cartId: cart.id,
-        productId: product.id,
-        productVariantId: dto.productVariantId ?? null,
-      },
-    });
-
-    if (existing) {
-      const nextQty = existing.qty + dto.qty;
-      await this.pricing.resolveForQuantity(product.id, nextQty);
-
-      const updated = await this.prisma.cartItem.update({
-        where: { id: existing.id },
-        data: { qty: nextQty },
+    // @@unique([cartId, productId, productVariantId]) does NOT cover rows with a
+    // NULL productVariantId (PostgreSQL treats NULLs as distinct), so duplicates
+    // for variant-less products must be merged in the service. The lookup and the
+    // write happen in one transaction so two concurrent adds cannot both miss.
+    const item = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.cartItem.findFirst({
+        where: {
+          cartId: cart.id,
+          productId: product.id,
+          productVariantId: dto.productVariantId ?? null,
+        },
       });
 
-      return this.getCart(userId).then((cart) => ({
-        item: updated,
-        cart,
-      }));
-    }
+      const finalQty = (existing?.qty ?? 0) + dto.qty;
 
-    const item = await this.prisma.cartItem.create({
-      data: {
-        cartId: cart.id,
-        productId: product.id,
-        productVariantId: dto.productVariantId ?? null,
-        qty: dto.qty,
-      },
+      if (dto.productVariantId) {
+        const variant = await tx.productVariant.findUnique({
+          where: { id: dto.productVariantId },
+        });
+
+        if (!variant || variant.productId !== product.id) {
+          throw new NotFoundException('Product variant not found');
+        }
+
+        if (variant.stock < finalQty) {
+          throw new BadRequestException('Insufficient stock for the selected variant');
+        }
+      }
+
+      if (
+        product.saleType === SaleType.WHOLESALE &&
+        product.minOrderQty &&
+        finalQty < product.minOrderQty
+      ) {
+        throw new BadRequestException(
+          `Minimum order quantity for this product is ${product.minOrderQty}`,
+        );
+      }
+
+      await this.pricing.resolveForQuantity(product.id, finalQty);
+
+      if (existing) {
+        return tx.cartItem.update({
+          where: { id: existing.id },
+          data: { qty: finalQty },
+        });
+      }
+
+      return tx.cartItem.create({
+        data: {
+          cartId: cart.id,
+          productId: product.id,
+          productVariantId: dto.productVariantId ?? null,
+          qty: dto.qty,
+        },
+      });
     });
 
     return { item, cart: await this.getCart(userId) };

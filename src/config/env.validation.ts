@@ -1,4 +1,32 @@
 import * as Joi from 'joi';
+import { splitCorsOrigins } from './configuration';
+
+/**
+ * CORS_ORIGIN is a comma-separated list of origins, so `Joi.string().uri()`
+ * cannot validate it directly (it rejects the commas). Every entry is trimmed
+ * and validated as a URI individually.
+ */
+const corsOrigins = () =>
+  Joi.string()
+    .required()
+    .custom((value: string, helpers) => {
+      const origins = splitCorsOrigins(value);
+
+      if (origins.length === 0) {
+        return helpers.message({
+          custom: 'CORS_ORIGIN must list at least one origin URI',
+        });
+      }
+
+      const invalid = origins.filter((o) => Joi.string().uri().validate(o).error);
+      if (invalid.length > 0) {
+        return helpers.message({
+          custom: `CORS_ORIGIN contains an invalid origin URI: ${invalid.join(', ')}`,
+        });
+      }
+
+      return value;
+    });
 
 export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
@@ -8,7 +36,7 @@ export const envValidationSchema = Joi.object({
   API_PREFIX: Joi.string().default('api'),
   API_VERSION: Joi.string().default('1'),
   PUBLIC_URL: Joi.string().uri().optional(),
-  CORS_ORIGIN: Joi.string().uri().required(),
+  CORS_ORIGIN: corsOrigins(),
   SWAGGER_ENABLED: Joi.boolean().default(false),
 
   DATABASE_URL: Joi.string().required(),

@@ -62,7 +62,7 @@ export class AuthService {
       include: { rbacRole: true, vendor: true },
     });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -195,7 +195,7 @@ export class AuthService {
       where: { id: userId },
       include: { rbacRole: true },
     });
-    if (!user) {
+    if (!user || user.deletedAt) {
       throw new UnauthorizedException('User not found');
     }
     return user;

@@ -12,6 +12,7 @@ import { UsersService } from './users.service';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { User } from '@prisma/client';
 import { CreateAddressDto, UpdateAddressDto } from './dto/address.dto';
 
@@ -32,8 +33,8 @@ export class UsersController {
   @Get('me')
   @ApiOperation({ summary: 'Get current user profile' })
   @ApiResponse({ status: 200, description: 'User profile' })
-  async getProfile(@CurrentUser() user: User) {
-    return this.usersService.findOne(user.id);
+  async getProfile(@CurrentUser() user: AuthenticatedUser) {
+    return this.usersService.getProfile(user.id);
   }
 
   @Get(':id')
@@ -85,9 +86,9 @@ export class UsersController {
 
   @Delete(':id')
   @RequirePermissions('users:delete')
-  @ApiOperation({ summary: 'Delete user' })
+  @ApiOperation({ summary: 'Soft delete user' })
   @ApiResponse({ status: 200, description: 'User deleted' })
-  async remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
+  async remove(@Param('id') id: string, @CurrentUser() caller: AuthenticatedUser) {
+    return this.usersService.remove(id, caller);
   }
 }
