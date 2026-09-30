@@ -9,6 +9,7 @@ import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { StorageService } from '../storage/storage.service';
+import { SearchSyncService } from '../search/search-sync.service';
 import { buildStoragePath } from '../storage/storage-path.util';
 
 @Injectable()
@@ -18,6 +19,7 @@ export class ProductImageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly search: SearchSyncService,
   ) {}
 
   async addImages(
@@ -58,7 +60,13 @@ export class ProductImageService {
       });
     }
 
-    return this.prisma.productImage.createMany({ data: created });
+    const result = await this.prisma.productImage.createMany({ data: created });
+
+    // The primary image is the search result's thumbnail, so the first upload
+    // changes what a shopper sees before they click.
+    await this.search.enqueueUpsert(product.id);
+
+    return result;
   }
 
   async setPrimary(
@@ -87,9 +95,13 @@ export class ProductImageService {
       }),
     ]);
 
-    return this.prisma.productImage.findUniqueOrThrow({
+    const updated = await this.prisma.productImage.findUniqueOrThrow({
       where: { id: image.id },
     });
+
+    await this.search.enqueueUpsert(product.id);
+
+    return updated;
   }
 
   async remove(user: AuthenticatedUser, productId: string, imageId: string) {
@@ -127,6 +139,9 @@ export class ProductImageService {
         });
       }
     }
+
+    // Removing the primary promotes another image, so the thumbnail changes.
+    await this.search.enqueueUpsert(product.id);
 
     return { message: 'Image deleted' };
   }

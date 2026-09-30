@@ -67,6 +67,18 @@ export const returnsConfig = registerAs('returns', () => ({
   windowDays: Number(process.env.RETURN_WINDOW_DAYS ?? 7),
 }));
 
+/**
+ * Meilisearch. `enabled` is a kill switch rather than a health check: turning
+ * search off must be instant and deterministic, not dependent on whether the
+ * search box happens to be reachable when the process starts.
+ */
+export const searchConfig = registerAs('search', () => ({
+  enabled: (process.env.SEARCH_ENABLED ?? 'true').toLowerCase() !== 'false',
+  host: process.env.MEILI_HOST ?? 'http://localhost:7700',
+  apiKey: process.env.MEILI_MASTER_KEY,
+  index: process.env.MEILI_INDEX ?? 'products',
+}));
+
 export const localPaymentsConfig = registerAs('localPayments', () => ({
   bkash: {
     appKey: process.env.BKASH_APP_KEY,

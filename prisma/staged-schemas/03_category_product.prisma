@@ -329,6 +329,8 @@ model Category {
 
 model Product {
   id              String             @id @default(uuid())
+  brandId         String?
+  brand Brand? @relation("ProductToBrand_1", fields: [brandId], references: [id], onDelete: SetNull)
   vendorId        String
   vendor Vendor @relation("ProductToVendor_1", fields: [vendorId], references: [id], onDelete: Cascade)
   categoryId      String
@@ -342,6 +344,9 @@ model Product {
   minOrderQty     Int?
   weightGrams     Int                @default(500)
   countryOfOrigin String?
+  ratingAvg       Decimal            @default(0) @db.Decimal(3, 2)
+  ratingCount     Int                @default(0)
+  soldCount       Int                @default(0)
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   deletedAt       DateTime?
@@ -352,7 +357,9 @@ model Product {
   cartItems CartItem[] @relation("CartItemToProduct_1")
   @@index([vendorId, status])
   @@index([categoryId])
+  @@index([brandId])
   @@index([saleType])
+  @@index([soldCount])
   @@map("products")
 }
 
@@ -518,4 +525,10 @@ model ReturnRequest {
   vendor Vendor @relation("ReturnRequestToVendor_1", fields: [vendorId], references: [id], onDelete: Restrict)
   decidedBy User? @relation("ReturnDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
   @@map("return_requests")
+}
+
+model Brand {
+  id        String    @id @default(uuid())
+  products Product[] @relation("ProductToBrand_1")
+  @@map("brands")
 }

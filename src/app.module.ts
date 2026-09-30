@@ -17,6 +17,7 @@ import {
   smsConfig,
   otpConfig,
   returnsConfig,
+  searchConfig,
   shippingConfig,
   storageConfig,
   mailConfig,
@@ -53,6 +54,8 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { NotificationModule } from './modules/notification/notification.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
+import { SearchModule } from './modules/search/search.module';
+import { BrandModule } from './modules/brand/brand.module';
 import { ReturnsModule } from './modules/returns/returns.module';
 import { ProcessorsModule } from './processors/processors.module';
 import { HealthModule } from './modules/health/health.module';
@@ -77,6 +80,7 @@ import { HealthModule } from './modules/health/health.module';
         smsConfig,
         otpConfig,
         returnsConfig,
+        searchConfig,
         shippingConfig,
         storageConfig,
         mailConfig,
@@ -143,6 +147,8 @@ import { HealthModule } from './modules/health/health.module';
     ChatModule,
     NotificationModule,
     ShippingModule,
+    SearchModule,
+    BrandModule,
     ReturnsModule,
     ProcessorsModule,
   ],

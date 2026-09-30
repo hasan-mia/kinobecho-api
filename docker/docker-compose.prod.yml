@@ -13,6 +13,7 @@ services:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/skylane?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      MEILI_HOST: http://meilisearch:7700
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -35,6 +36,31 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: skylane-meilisearch-prod
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_NO_ANALYTICS: 'true'
+    volumes:
+      - meilisearch_data_prod:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
 
   postgres:
     image: postgres:16-alpine
@@ -76,3 +102,4 @@ services:
 volumes:
   postgres_data_prod:
   redis_data_prod:
+  meilisearch_data_prod:

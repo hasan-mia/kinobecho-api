@@ -51,6 +51,7 @@ earnings through a single unified ledger.
 - **Unified ledger** — one `Transaction` table records payments, payouts, refunds and adjustments
 - **Payments** — Stripe, bKash, Nagad, SSLCommerz, each behind a common provider interface with signed webhooks
 - **Payouts** — vendors request settlement for delivered orders; admins approve or reject
+- **Product search** — Meilisearch index kept in sync through a BullMQ queue, with a Postgres fallback so search survives the engine being down
 - **Realtime chat** — Socket.io with the Redis adapter, buyer↔vendor and buyer↔support threads
 - **Notifications** — transactional email and FCM push, plus BullMQ-backed bulk campaigns
 - **Dynamic RBAC** — roles and permissions stored in the database, enforced by guards
@@ -68,6 +69,7 @@ earnings through a single unified ledger.
 | Database | PostgreSQL 15+ |
 | Cache / broker | Redis 7 (ioredis) |
 | Queues | BullMQ |
+| Search | Meilisearch (product index), Postgres ILIKE fallback |
 | Realtime | Socket.io 4 + `@socket.io/redis-adapter` |
 | Auth | JWT (access + refresh rotation), Argon2id |
 | Payments | Stripe, bKash, Nagad, SSLCommerz |
@@ -159,6 +161,8 @@ kinobecho-api/
 │       ├── payments/           # Provider interface + Stripe/bKash/Nagad/SSLCommerz
 │       ├── webhooks/           # Signature-verified inbound gateway webhooks
 │       ├── returns/            # Return requests, decisions, restock, refunds
+│       ├── search/             # Meilisearch index, sync queue, Postgres fallback
+│       ├── brand/              # Brand catalogue (admin CRUD)
 │       ├── chat/               # Socket.io gateway + REST, Redis adapter
 │       ├── notification/       # Mail/push providers, BullMQ promo campaigns
 │       └── health/             # Liveness/readiness (DB, Redis)
@@ -174,7 +178,9 @@ kinobecho-api/
 
 ## Quick Start
 
-**Prerequisites:** Node.js 20+, PostgreSQL 15+, Redis 7+
+**Prerequisites:** Node.js 20+, PostgreSQL 15+, Redis 7+. Meilisearch is
+optional — `docker compose -f docker/docker-compose.yml up` starts it, and
+`SEARCH_ENABLED=false` runs the whole API on the Postgres fallback without it.
 
 ### 1. Install
 
@@ -284,6 +290,15 @@ npm run start:dev
 | `OTP_REQUEST_LIMIT` / `OTP_REQUEST_WINDOW_SECONDS` | Per-phone OTP requests allowed per window | `3` / `600` |
 | **Returns** |||
 | `RETURN_WINDOW_DAYS` | Days after the DELIVERED history row in which a return may be filed | `7` |
+
+**Search**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SEARCH_ENABLED` | `false` keeps the API on the Postgres fallback without touching Meilisearch | `true` |
+| `MEILI_HOST` | Meilisearch base URL | `http://localhost:7700` |
+| `MEILI_MASTER_KEY` | Meilisearch master/API key | — |
+| `MEILI_INDEX` | Index uid for products | `products` |
 | **Images / CDN** |||
 | `CDN_BASE_URL` | When set, every public URL is `CDN_BASE_URL` + storage key | — |
 | `IMAGE_MAX_BYTES` | Reject uploads larger than this | `5242880` (5MB) |
@@ -568,6 +583,64 @@ If a payout already covers the order, the refund is booked as a negative
 (`POST /payouts/request` subtracts outstanding debts, and `GET /vendors/me/wallet`
 shows them as `outstandingAdjustment`).
 
+### Brands — `brands`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/brands` | Public — active brands only |
+| `GET` | `/brands/{id}` | Public — one brand |
+| `GET` | `/brands/admin` | Admin (`brand:manage`) — active and inactive |
+| `POST` | `/brands` | Admin (`brand:manage`) — create |
+| `PUT` `PATCH` | `/brands/{id}` | Admin (`brand:manage`) — update; re-queues the brand's products for re-indexing |
+| `DELETE` | `/brands/{id}` | Admin (`brand:manage`) — deactivate, never delete |
+
+`DELETE` deactivates rather than deleting: products reference a brand with
+`onDelete: SetNull`, so a hard delete would silently strip the brand off the
+whole catalogue.
+
+### Search — `search`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/search/products` | `q`, `categoryId`, `brandId`, `vendorId`, `saleType`, `minPrice`, `maxPrice`, `minRating`, `sort`, `page`, `limit` |
+| `GET` | `/search/suggest?q=` | Top 8 product names, Redis-cached for 60s |
+
+Both routes are public. The products response is the usual
+`{ items, meta, facets }` envelope plus an `engine` field:
+
+```jsonc
+{
+  "items": [{ "id": "...", "name": "...", "price": "79.99", "ratingAvg": "4.50" }],
+  "meta": { "total": 42, "page": 1, "limit": 20, "totalPages": 3 },
+  "facets": {
+    "brands":    [{ "id": "...", "name": "Brand One", "count": 12 }],
+    "categories":[{ "id": "...", "name": "Phones",    "count": 9 }],
+    "priceRange": { "min": 100, "max": 90000 }
+  },
+  "engine": "meilisearch" // or "postgres" when it fell back
+}
+```
+
+`sort` is one of `relevance`, `price_asc`, `price_desc`, `newest`, `popular`,
+`rating`. Only ACTIVE, non-deleted products are returned.
+
+**Money is read from Postgres, not from the index.** Meilisearch sees `price` as
+a float so it can filter and sort on it, but the rows that leave this service
+are re-read from Postgres and serialised as decimal strings, so a search result
+and a product page can never disagree by a rounding error.
+
+**Index sync.** Every write that changes what a shopper would see — product
+create/update/archive, variant edits, image uploads, review moderation, and an
+order reaching `DELIVERED` — enqueues a `search-index` job rather than calling
+Meilisearch inline. A failed enqueue leaves a stale document, never a failed
+write; `npm run search:reindex` rebuilds the index from Postgres in full.
+
+**Fallback.** If Meilisearch is unreachable, or `SEARCH_ENABLED=false`, the
+service answers from Postgres with the identical response shape. The fallback is
+honest about its limits: `ILIKE` matches substrings (so "phone" also finds
+"headphone") and its facet counts describe the matched rows, not the whole
+result set. `engine` in the response says which path answered.
+
 ### Reviews — `reviews`
 
 | Method | Path | Description |
@@ -783,6 +856,7 @@ npm run pm2:prod
 | `npm run prisma:stages:write` | Regenerate stages and write relation names back to the source schema |
 | `npm run prisma:migrations:staged` | Rebuild all staged migration folders |
 | `npm run db:setup` | Database bootstrap helper |
+| `npm run search:reindex` | Rebuild the whole Meilisearch product index from Postgres |
 | `npm run docker:dev` / `docker:prod` | Docker Compose |
 | `npm run pm2:dev` / `pm2:prod` | PM2 |
 

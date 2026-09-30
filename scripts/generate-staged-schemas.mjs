@@ -82,6 +82,7 @@ const STAGE_OF_MODEL = {
   ReturnRequest: 12,
   ReturnItem: 12,
   PayoutAdjustment: 12,
+  Brand: 13,
 };
 
 const STAGE_FILES = [
@@ -97,6 +98,7 @@ const STAGE_FILES = [
   [10, '10_shipping', 'Shipping zones / rates / shipments'],
   [11, '11_otp', 'OTP codes'],
   [12, '12_returns', 'Return requests / return items'],
+  [13, '13_search', 'Brands + search-ready product aggregates'],
 ];
 
 const SCALARS = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt']);

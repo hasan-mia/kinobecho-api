@@ -5,9 +5,10 @@ import { ProductImageService } from './product-image.service';
 import { ProductPricingService } from './pricing/product-pricing.service';
 import { PrismaModule } from '../../database/prisma.module';
 import { StorageModule } from '../storage/storage.module';
+import { SearchModule } from '../search/search.module';
 
 @Module({
-  imports: [PrismaModule, StorageModule],
+  imports: [PrismaModule, StorageModule, SearchModule],
   controllers: [ProductController],
   providers: [ProductService, ProductImageService, ProductPricingService],
   exports: [ProductService, ProductImageService, ProductPricingService],

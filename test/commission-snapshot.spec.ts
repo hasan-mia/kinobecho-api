@@ -17,6 +17,8 @@ describe('commission snapshot at delivery', () => {
     vendor: { findUnique: ReturnType<typeof vi.fn> };
     transaction: { create: ReturnType<typeof vi.fn> };
     orderStatusHistory: { create: ReturnType<typeof vi.fn> };
+    orderItem: { findMany: ReturnType<typeof vi.fn> };
+    product: { update: ReturnType<typeof vi.fn> };
   };
   let prisma: {
     order: { findUnique: ReturnType<typeof vi.fn> };
@@ -66,6 +68,9 @@ describe('commission snapshot at delivery', () => {
       vendor: { findUnique: vi.fn() },
       transaction: { create: vi.fn().mockResolvedValue({}) },
       orderStatusHistory: { create: vi.fn().mockResolvedValue({}) },
+      // soldCount is aggregated from the order's lines at delivery.
+      orderItem: { findMany: vi.fn().mockResolvedValue([]) },
+      product: { update: vi.fn().mockResolvedValue({}) },
     };
 
     prisma = {
@@ -93,6 +98,7 @@ describe('commission snapshot at delivery', () => {
       { settleCodOnDelivery: vi.fn() } as unknown as PaymentsService,
       {} as unknown as OrderCancellationService,
       commission,
+      { enqueueUpsert: vi.fn() } as never,
     );
   });
 

@@ -69,6 +69,11 @@ export class CreateProductDto {
   @IsUUID()
   categoryId: string;
 
+  @ApiPropertyOptional({ format: 'uuid', description: 'Optional brand' })
+  @IsUUID()
+  @IsOptional()
+  brandId?: string;
+
   @ApiProperty({ example: 'Sony Bravia 55" 4K Smart TV' })
   @IsString()
   @MinLength(2)
@@ -132,6 +137,11 @@ export class UpdateProductDto {
   @IsUUID()
   @IsOptional()
   categoryId?: string;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsUUID()
+  @IsOptional()
+  brandId?: string;
 
   @ApiPropertyOptional()
   @IsString()
@@ -221,6 +231,11 @@ export class ListProductsQueryDto {
   @IsUUID()
   @IsOptional()
   categoryId?: string;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID()
+  @IsOptional()
+  brandId?: string;
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsUUID()

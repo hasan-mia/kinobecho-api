@@ -15,6 +15,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { slugify } from '../../common/utils/slug.util';
 import { ProductPricingService } from './pricing/product-pricing.service';
+import { SearchSyncService } from '../search/search-sync.service';
 import {
   CreateProductDto,
   ListProductsQueryDto,
@@ -33,6 +34,7 @@ export class ProductService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly pricing: ProductPricingService,
+    private readonly search: SearchSyncService,
   ) {}
 
   async create(user: AuthenticatedUser, dto: CreateProductDto) {
@@ -48,8 +50,9 @@ export class ProductService {
 
     const slug = await this.generateUniqueSlug(dto.slug ?? dto.name);
 
-    return this.prisma.product.create({
+    const created = await this.prisma.product.create({
       data: {
+        brandId: dto.brandId,
         vendorId: vendor.id,
         categoryId: dto.categoryId,
         name: dto.name,
@@ -89,6 +92,10 @@ export class ProductService {
         priceTiers: { orderBy: { minQty: 'asc' } },
       },
     });
+
+    await this.search.enqueueUpsert(created.id);
+
+    return created;
   }
 
   async findAll(query: ListProductsQueryDto) {
@@ -99,6 +106,7 @@ export class ProductService {
       deletedAt: null,
       status: query.status ?? ProductStatus.ACTIVE,
       categoryId: query.categoryId,
+      brandId: query.brandId,
       vendorId: query.vendorId,
       saleType: query.saleType,
     };
@@ -144,6 +152,7 @@ export class ProductService {
             select: { id: true, businessName: true, slug: true, logoUrl: true },
           },
           category: { select: { id: true, name: true, slug: true } },
+          brand: { select: { id: true, name: true, slug: true, logoUrl: true } },
           _count: { select: { variants: true } },
         },
       }),
@@ -179,6 +188,7 @@ export class ProductService {
           },
         },
         category: { select: { id: true, name: true, slug: true } },
+        brand: { select: { id: true, name: true, slug: true, logoUrl: true } },
       },
     });
 
@@ -226,9 +236,10 @@ export class ProductService {
           ? await this.generateUniqueSlug(dto.name, id)
           : undefined;
 
-    return this.prisma.product.update({
+    const updated = await this.prisma.product.update({
       where: { id: product.id },
       data: {
+        brandId: dto.brandId,
         categoryId: dto.categoryId,
         name: dto.name,
         slug,
@@ -241,6 +252,10 @@ export class ProductService {
         countryOfOrigin: dto.countryOfOrigin,
       },
     });
+
+    await this.search.enqueueUpsert(updated.id);
+
+    return updated;
   }
 
   async updateVariant(
@@ -259,7 +274,7 @@ export class ProductService {
       throw new NotFoundException('Variant not found');
     }
 
-    return this.prisma.productVariant.update({
+    const updated = await this.prisma.productVariant.update({
       where: { id: variant.id },
       data: {
         stock: dto.stock,
@@ -271,6 +286,11 @@ export class ProductService {
         attributes: dto.attributes as Prisma.InputJsonValue | undefined,
       },
     });
+
+    // Attributes and price overrides are both on the search document.
+    await this.search.enqueueUpsert(product.id);
+
+    return updated;
   }
 
   async remove(user: AuthenticatedUser, id: string) {
@@ -280,6 +300,10 @@ export class ProductService {
       where: { id: product.id },
       data: { deletedAt: new Date(), status: ProductStatus.ARCHIVED },
     });
+
+    // An archived product must leave the index, not be filtered out of it: a
+    // missed status change would otherwise keep it in results forever.
+    await this.search.enqueueDelete(product.id);
 
     return { message: 'Product deleted' };
   }

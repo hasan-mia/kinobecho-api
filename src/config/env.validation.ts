@@ -142,6 +142,13 @@ export const envValidationSchema = Joi.object({
   // Days after the DELIVERED history row during which a buyer may file a return.
   RETURN_WINDOW_DAYS: Joi.number().integer().positive().default(7),
 
+  // Meilisearch. SEARCH_ENABLED=false keeps the service on the Postgres
+  // fallback without needing the box to exist.
+  SEARCH_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  MEILI_HOST: Joi.string().uri().default('http://localhost:7700'),
+  MEILI_MASTER_KEY: Joi.string().allow('').optional(),
+  MEILI_INDEX: Joi.string().default('products'),
+
   OTP_TTL_SECONDS: Joi.number().integer().positive().default(300),
   OTP_MAX_ATTEMPTS: Joi.number().integer().positive().default(5),
   OTP_REQUEST_LIMIT: Joi.number().integer().positive().default(3),

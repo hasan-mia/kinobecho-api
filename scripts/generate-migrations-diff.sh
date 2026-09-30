@@ -40,6 +40,7 @@ STAGES=(
   "10_shipping:shipping"
   "11_otp:otp"
   "12_returns:returns"
+  "13_search:search"
 )
 
 # Prisma migration lock file (single canonical lock per provider)
@@ -100,7 +101,7 @@ done
 final_sql="$(mktemp)"
 trap 'rm -f "$final_sql"' EXIT
 npx prisma migrate diff \
-  --from-schema-datamodel "$STAGED_DIR/12_returns.prisma" \
+  --from-schema-datamodel "$STAGED_DIR/13_search.prisma" \
   --to-schema-datamodel "$SCHEMA" \
   --script >"$final_sql" 2>/dev/null || true
 

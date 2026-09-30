@@ -479,8 +479,27 @@ model Category {
   @@map("categories")
 }
 
+/// A manufacturer label, independent of the vendor who happens to sell the
+/// product. Optional on a product: plenty of goods have no brand, and forcing
+/// one would mean inventing data.
+model Brand {
+  id        String    @id @default(uuid())
+  name      String
+  slug      String    @unique
+  logoUrl   String?
+  isActive  Boolean   @default(true)
+  products  Product[] @relation("ProductToBrand_1")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([isActive])
+  @@map("brands")
+}
+
 model Product {
   id              String             @id @default(uuid())
+  brandId         String?
+  brand           Brand?             @relation("ProductToBrand_1", fields: [brandId], references: [id], onDelete: SetNull)
   vendorId        String
   vendor          Vendor             @relation("ProductToVendor_1", fields: [vendorId], references: [id], onDelete: Cascade)
   categoryId      String
@@ -494,6 +513,15 @@ model Product {
   minOrderQty     Int?
   weightGrams     Int                @default(500)
   countryOfOrigin String?
+  /// Denormalised review aggregate, recomputed whenever a review is approved
+  /// or rejected. Kept on the product so search can sort and filter by rating
+  /// without a join, and so the listing endpoint stays a single query.
+  ratingAvg       Decimal            @default(0) @db.Decimal(3, 2)
+  ratingCount     Int                @default(0)
+  /// Units actually delivered, accumulated when an order reaches DELIVERED.
+  /// Drives the "popular" sort. Not decremented on return: the units were
+  /// genuinely sold, and a return does not un-sell them.
+  soldCount       Int                @default(0)
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   deletedAt       DateTime?
@@ -505,7 +533,9 @@ model Product {
 
   @@index([vendorId, status])
   @@index([categoryId])
+  @@index([brandId])
   @@index([saleType])
+  @@index([soldCount])
   @@map("products")
 }
 

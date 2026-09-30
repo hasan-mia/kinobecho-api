@@ -13,6 +13,7 @@ import { OrderStatusService } from '../shipping/order-status.service';
 import { OrderCancellationService } from './order-cancellation.service';
 import { CommissionService } from '../payouts/commission.service';
 import { ShippingRateService } from '../shipping/shipping-rate.service';
+import { SearchModule } from '../search/search.module';
 
 /**
  * OrderStatusService and ShippingRateService live under modules/shipping but are
@@ -29,6 +30,7 @@ import { ShippingRateService } from '../shipping/shipping-rate.service';
     CouponsModule,
     PaymentsModule,
     PayoutsModule,
+    SearchModule,
   ],
   controllers: [OrdersController],
   providers: [

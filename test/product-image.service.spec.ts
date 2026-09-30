@@ -71,6 +71,7 @@ describe('ProductImageService variants', () => {
     service = new ProductImageService(
       prisma as unknown as PrismaService,
       storage as unknown as StorageService,
+      { enqueueUpsert: vi.fn() } as never,
     );
   });
 
