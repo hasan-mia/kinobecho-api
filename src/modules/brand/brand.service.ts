@@ -4,9 +4,11 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Locale, Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { slugify } from '../../common/utils/slug.util';
+import { DEFAULT_LOCALE } from '../../common/i18n/locale.util';
+import { applyTranslation } from '../../common/i18n/translation.util';
 import { SearchSyncService } from '../search/search-sync.service';
 import {
   CreateBrandDto,
@@ -28,21 +30,29 @@ export class BrandService {
    * is a merchandising decision, not a deletion, and its products stay in the
    * catalogue but must not be offered as a filter choice.
    */
-  async list(query: ListBrandsQueryDto) {
-    return this.prisma.brand.findMany({
+  async list(query: ListBrandsQueryDto, locale: Locale = DEFAULT_LOCALE) {
+    const brands = await this.prisma.brand.findMany({
       where: query.includeInactive ? {} : { isActive: true },
       orderBy: { name: 'asc' },
+      include: { translations: true },
     });
+
+    // Ordered on the base name so the brand list does not reshuffle when the
+    // caller switches locale.
+    return brands.map((b) => applyTranslation(b, b.translations, locale));
   }
 
-  async findOne(id: string) {
-    const brand = await this.prisma.brand.findUnique({ where: { id } });
+  async findOne(id: string, locale: Locale = DEFAULT_LOCALE) {
+    const brand = await this.prisma.brand.findUnique({
+      where: { id },
+      include: { translations: true },
+    });
 
     if (!brand) {
       throw new NotFoundException('Brand not found');
     }
 
-    return brand;
+    return applyTranslation(brand, brand.translations, locale);
   }
 
   async create(dto: CreateBrandDto) {
@@ -54,6 +64,14 @@ export class BrandService {
         slug,
         logoUrl: dto.logoUrl ?? null,
         isActive: dto.isActive ?? true,
+        translations: dto.translations?.length
+          ? {
+              create: dto.translations.map((t) => ({
+                locale: t.locale,
+                name: t.name,
+              })),
+            }
+          : undefined,
       },
     });
   }
@@ -61,14 +79,29 @@ export class BrandService {
   async update(id: string, dto: UpdateBrandDto) {
     const brand = await this.findOne(id);
 
-    const updated = await this.prisma.brand.update({
-      where: { id: brand.id },
-      data: {
-        name: dto.name?.trim(),
-        slug: dto.slug !== undefined ? await this.uniqueSlug(dto.slug, id) : undefined,
-        logoUrl: dto.logoUrl,
-        isActive: dto.isActive,
-      },
+    // Translations replace wholesale so a locale can be removed by omitting it.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (dto.translations !== undefined) {
+        await tx.brandTranslation.deleteMany({ where: { brandId: id } });
+      }
+
+      return tx.brand.update({
+        where: { id: brand.id },
+        data: {
+          name: dto.name?.trim(),
+          slug: dto.slug !== undefined ? await this.uniqueSlug(dto.slug, id) : undefined,
+          logoUrl: dto.logoUrl,
+          isActive: dto.isActive,
+          translations: dto.translations?.length
+            ? {
+                create: dto.translations.map((t) => ({
+                  locale: t.locale,
+                  name: t.name,
+                })),
+              }
+            : undefined,
+        },
+      });
     });
 
     // The brand's name and logo are denormalised onto every product document,

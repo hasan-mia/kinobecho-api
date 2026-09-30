@@ -121,14 +121,31 @@ describe('SearchService — Meilisearch unavailable', () => {
     await service.searchProducts({ q: 'blue' });
 
     const where = prisma.product.findMany.mock.calls[0]![0].where as {
-      OR: { description: unknown }[];
+      OR: Record<string, unknown>[];
     };
 
-    expect(where.OR).toHaveLength(3);
-    expect(where.OR[1]?.description).toEqual({
-      contains: 'blue',
-      mode: 'insensitive',
+    // Asserted by content rather than by index: the OR list grows whenever the
+    // fallback needs to match something new, and an index-based assertion would
+    // break for a reason that has nothing to do with this test.
+    expect(where.OR).toContainEqual({
+      description: { contains: 'blue', mode: 'insensitive' },
     });
+    expect(where.OR).toContainEqual({
+      name: { contains: 'blue', mode: 'insensitive' },
+    });
+  });
+
+  it('searches translations, so a Bengali query works without the index', async () => {
+    await service.searchProducts({ q: 'মোবাইল' });
+
+    const where = prisma.product.findMany.mock.calls[0]![0].where as {
+      OR: Record<string, unknown>[];
+    };
+
+    // Parity with the Meilisearch path matters more than the extra predicate: a
+    // fallback that quietly searched less would look like products vanishing
+    // whenever the index happened to be down.
+    expect(JSON.stringify(where.OR)).toContain('translations');
   });
 
   it('applies the same filters on the fallback path', async () => {

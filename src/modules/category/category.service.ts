@@ -4,12 +4,23 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Locale } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisCacheService } from '../../common/cache/redis-cache.service';
 import { slugify } from '../../common/utils/slug.util';
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from '../../common/i18n/locale.util';
+import { applyTranslation } from '../../common/i18n/translation.util';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
 
-const TREE_CACHE_KEY = 'category:tree';
+/**
+ * The tree is cached per locale, not once.
+ *
+ * A single key would let the first Bengali request poison the entry every later
+ * English request reads — the failure is silent and looks like a caching bug
+ * rather than a missing key. The locale is part of the identity of this payload.
+ */
+const treeCacheKey = (locale: Locale, includeInactive: boolean): string =>
+  `category:tree:${locale}:${includeInactive ? 'all' : 'active'}`;
 const TREE_CACHE_TTL = 300;
 
 export interface CategoryNode {
@@ -51,6 +62,14 @@ export class CategoryService {
         sortOrder: dto.sortOrder ?? 0,
         isActive: dto.isActive ?? true,
         parentId: dto.parentId,
+        translations: dto.translations?.length
+          ? {
+              create: dto.translations.map((t) => ({
+                locale: t.locale,
+                name: t.name,
+              })),
+            }
+          : undefined,
       },
     });
 
@@ -92,16 +111,33 @@ export class CategoryService {
         ? await this.generateUniqueSlug(dto.slug, id)
         : undefined;
 
-    const updated = await this.prisma.category.update({
-      where: { id },
-      data: {
-        name: dto.name,
-        slug,
-        imageUrl: dto.imageUrl,
-        sortOrder: dto.sortOrder,
-        isActive: dto.isActive,
-        parentId: dto.parentId,
-      },
+    // Replaced wholesale, so a locale can be removed by omitting it.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (dto.translations !== undefined) {
+        await tx.categoryTranslation.deleteMany({
+          where: { categoryId: id },
+        });
+      }
+
+      return tx.category.update({
+        where: { id },
+        data: {
+          name: dto.name,
+          slug,
+          imageUrl: dto.imageUrl,
+          sortOrder: dto.sortOrder,
+          isActive: dto.isActive,
+          parentId: dto.parentId,
+          translations: dto.translations?.length
+            ? {
+                create: dto.translations.map((t) => ({
+                  locale: t.locale,
+                  name: t.name,
+                })),
+              }
+            : undefined,
+        },
+      });
     });
 
     await this.invalidateCache();
@@ -142,14 +178,21 @@ export class CategoryService {
     return { message: 'Category deleted' };
   }
 
-  async getTree(includeInactive = false): Promise<CategoryNode[]> {
-    const cached = await this.cache.get<CategoryNode[]>(TREE_CACHE_KEY);
+  async getTree(
+    includeInactive = false,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<CategoryNode[]> {
+    const key = treeCacheKey(locale, includeInactive);
+    const cached = await this.cache.get<CategoryNode[]>(key);
     if (cached) {
       return cached;
     }
 
     const categories = await this.prisma.category.findMany({
       where: includeInactive ? undefined : { isActive: true },
+      // Sorted on the base name, not the translated one: the ordering must not
+      // depend on which locale happens to ask, or switching locale would
+      // reshuffle the menu.
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
@@ -159,27 +202,37 @@ export class CategoryService {
         sortOrder: true,
         isActive: true,
         parentId: true,
+        translations: true,
       },
     });
 
-    const tree = this.buildTree(categories);
+    const tree = this.buildTree(
+      categories.map((c) => applyTranslation(c, c.translations, locale)),
+    );
 
-    await this.cache.set(TREE_CACHE_KEY, tree, TREE_CACHE_TTL);
+    await this.cache.set(key, tree, TREE_CACHE_TTL);
 
     return tree;
   }
 
-  async findBySlug(slug: string) {
+  async findBySlug(slug: string, locale: Locale = DEFAULT_LOCALE) {
     const category = await this.prisma.category.findUnique({
       where: { slug },
       include: {
+        translations: true,
         parent: {
-          select: { id: true, name: true, slug: true },
+          select: { id: true, name: true, slug: true, translations: true },
         },
         children: {
           where: { isActive: true },
           orderBy: { sortOrder: 'asc' },
-          select: { id: true, name: true, slug: true, imageUrl: true },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            imageUrl: true,
+            translations: true,
+          },
         },
         _count: {
           select: { products: true },
@@ -191,7 +244,15 @@ export class CategoryService {
       throw new NotFoundException('Category not found');
     }
 
-    return category;
+    return {
+      ...applyTranslation(category, category.translations, locale),
+      parent: category.parent
+        ? applyTranslation(category.parent, category.parent.translations, locale)
+        : null,
+      children: category.children.map((child) =>
+        applyTranslation(child, child.translations, locale),
+      ),
+    };
   }
 
   async findAllActive() {
@@ -256,8 +317,20 @@ export class CategoryService {
     return false;
   }
 
+  /**
+   * Drops every locale variant of the tree.
+   *
+   * The keys are enumerated from the supported-locale list rather than
+   * wildcard-deleted, so an admin write cannot quietly evict unrelated cache
+   * entries that happen to share the prefix.
+   */
   private async invalidateCache() {
-    await this.cache.del(TREE_CACHE_KEY);
+    await this.cache.del(
+      SUPPORTED_LOCALES.flatMap((locale) => [
+        treeCacheKey(locale, false),
+        treeCacheKey(locale, true),
+      ]),
+    );
   }
 
   private async generateUniqueSlug(

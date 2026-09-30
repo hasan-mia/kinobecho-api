@@ -16,9 +16,10 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { Locale, UserRole } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { LocaleParam } from '../../common/decorators/locale.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
@@ -42,8 +43,8 @@ export class BrandController {
   @Get()
   @Public()
   @ApiOperation({ summary: 'List active brands' })
-  list() {
-    return this.brands.list({});
+  list(@LocaleParam() locale: Locale) {
+    return this.brands.list({}, locale);
   }
 
   @Get('admin')
@@ -58,8 +59,8 @@ export class BrandController {
   @Get(':id')
   @Public()
   @ApiOperation({ summary: 'One brand' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.brands.findOne(id);
+  findOne(@Param('id', ParseUUIDPipe) id: string, @LocaleParam() locale: Locale) {
+    return this.brands.findOne(id, locale);
   }
 
   @Post()

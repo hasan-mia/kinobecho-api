@@ -26,6 +26,11 @@ enum UserRole {
   CUSTOMER
 }
 
+enum Locale {
+  en
+  bn
+}
+
 enum KycStatus {
   PENDING
   APPROVED
@@ -256,6 +261,7 @@ model User {
   roleId             String?
   rbacRole Role? @relation("RoleToUser_1", fields: [roleId], references: [id])
   avatarUrl          String?
+  preferredLocale    Locale               @default(en)
   isVerified         Boolean              @default(false)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
@@ -317,7 +323,7 @@ model Vendor {
 // --- STUBS (introduced in a later stage) ---
 
 model Product {
-  id              String             @id @default(uuid())
+  id              String               @id @default(uuid())
   vendorId        String
   vendor Vendor @relation("ProductToVendor_1", fields: [vendorId], references: [id], onDelete: Cascade)
   @@map("products")

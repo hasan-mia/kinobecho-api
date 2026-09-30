@@ -1,5 +1,6 @@
-import { IsEmail, IsString, IsOptional } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsEnum, IsString, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Locale } from '@prisma/client';
 
 export class UpdateUserDto {
   @ApiProperty({ example: 'John Doe', required: false })
@@ -12,4 +13,14 @@ export class UpdateUserDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @ApiPropertyOptional({
+    enum: Locale,
+    description:
+      'Language for notifications. Persisted rather than taken from a request ' +
+      'header, because notifications are delivered out of band.',
+  })
+  @IsEnum(Locale)
+  @IsOptional()
+  preferredLocale?: Locale;
 }

@@ -1,6 +1,21 @@
-import { Prisma, ProductStatus } from '@prisma/client';
+import { Locale, Prisma, ProductStatus } from '@prisma/client';
 
 export const PRODUCTS_INDEX = 'products';
+
+/**
+ * Locales carried on the index document as sibling fields rather than one
+ * nested object.
+ *
+ * Meilisearch can search a flattened array, but not a nested object's values, so
+ * `translations: [{locale, name}]` would be invisible to the query. One
+ * `name_<locale>` column per supported locale is what makes both languages
+ * searchable with a single query — which is the point: a Bangladeshi shopper
+ * typing the Bengali name must find the product even on a request that did not
+ * ask for a locale.
+ */
+const INDEXED_LOCALES = [Locale.bn] as const;
+
+type IndexedLocale = (typeof INDEXED_LOCALES)[number];
 
 /**
  * One product as Meilisearch sees it.
@@ -15,6 +30,9 @@ export interface ProductIndexDocument {
   id: string;
   name: string;
   description: string;
+  /** Bengali name, or '' when untranslated. Absent keys are unsearchable. */
+  'name_bn'?: string;
+  'description_bn'?: string;
   slug: string;
   /** The product's own category plus every ancestor, so a parent filter matches. */
   categoryIds: string[];
@@ -34,9 +52,16 @@ export interface ProductIndexDocument {
   createdAt: number;
 }
 
+/**
+ * `name` and `description` stay searchable alongside the Bengali columns, so a
+ * search never *requires* a locale: a shopper may know either name, and
+ * restricting search to the requested locale would hide real matches.
+ */
 export const SEARCHABLE_ATTRIBUTES = [
   'name',
+  'name_bn',
   'description',
+  'description_bn',
   'brandName',
   'attributes',
   'slug',
@@ -127,8 +152,13 @@ export interface ProductForIndex {
   categoryId: string;
   vendorId: string;
   brandId: string | null;
-  brand?: { name: string } | null;
+  brand?: { name: string; translations?: { locale: Locale; name: string }[] } | null;
   variants?: { attributes: Prisma.JsonValue }[];
+  translations?: {
+    locale: Locale;
+    name: string;
+    description: string | null;
+  }[];
   images?: { thumbUrl: string | null; isPrimary: boolean; sortOrder: number }[];
 }
 
@@ -192,10 +222,20 @@ export function toIndexDocument(
     ? primary
     : [...images].sort((a, b) => a.sortOrder - b.sortOrder)[0];
 
+  // Absent translations become empty strings rather than being left out: a
+  // missing key and an empty one behave differently in Meilisearch's ranking,
+  // and one untranslated product must not shift how every other product scores.
+  const byLocale = new Map(
+    (product.translations ?? []).map((t) => [t.locale, t]),
+  );
+  const bn = byLocale.get(Locale.bn as IndexedLocale);
+
   return {
     id: product.id,
     name: product.name,
     description: product.description ?? '',
+    'name_bn': bn?.name ?? '',
+    'description_bn': bn?.description ?? '',
     slug: product.slug,
     // The product's own category first so a leaf-category filter is exact, with
     // ancestors after it for the parent roll-up.

@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { Locale } from '@prisma/client';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -6,6 +7,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
+import { LocaleParam } from '../../common/decorators/locale.decorator';
 import { SearchService } from './search.service';
 import {
   SearchProductsQueryDto,
@@ -33,14 +35,17 @@ export class SearchController {
       'unreachable; the `engine` field reports which one answered.',
   })
   @ApiResponse({ status: 200, description: 'Products with facets' })
-  searchProducts(@Query() query: SearchProductsQueryDto) {
-    return this.search.searchProducts(query);
+  searchProducts(
+    @Query() query: SearchProductsQueryDto,
+    @LocaleParam() locale: Locale,
+  ) {
+    return this.search.searchProducts(query, locale);
   }
 
   @Get('suggest')
   @Public()
   @ApiOperation({ summary: 'Top product names for a prefix (cached 60s)' })
-  suggest(@Query() query: SuggestQueryDto) {
-    return this.search.suggest(query.q);
+  suggest(@Query() query: SuggestQueryDto, @LocaleParam() locale: Locale) {
+    return this.search.suggest(query.q, locale);
   }
 }

@@ -16,10 +16,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { Locale, UserRole } from '@prisma/client';
 import { CategoryService } from './category.service';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import { LocaleParam } from '../../common/decorators/locale.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 
@@ -66,15 +67,16 @@ export class CategoryController {
   })
   @ApiOperation({ summary: 'Get the category tree' })
   getTree(
-    @Query('includeInactive') includeInactive?: string | undefined,
+    @Query('includeInactive') includeInactive: string | undefined,
+    @LocaleParam() locale: Locale,
   ) {
-    return this.categoryService.getTree(includeInactive === 'true');
+    return this.categoryService.getTree(includeInactive === 'true', locale);
   }
 
   @Get(':slug')
   @Public()
-  @ApiOperation({ summary: 'Get a category by slug' })
-  findBySlug(@Param('slug') slug: string) {
-    return this.categoryService.findBySlug(slug);
+  @ApiOperation({ summary: 'Get a category by slug (?lang=bn to translate)' })
+  findBySlug(@Param('slug') slug: string, @LocaleParam() locale: Locale) {
+    return this.categoryService.findBySlug(slug, locale);
   }
 }

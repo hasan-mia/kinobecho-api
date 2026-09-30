@@ -8,6 +8,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { USER_ROLE_PERMISSIONS } from '../roles/permissions.registry';
 import { CreateAddressDto, UpdateAddressDto } from './dto/address.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -63,6 +64,44 @@ export class UsersService {
    * dynamic RBAC role; when no role (or a role with no permissions yet) is
    * assigned, the static USER_ROLE_PERMISSIONS set is the fallback.
    */
+  /**
+   * Updates the caller's own profile.
+   *
+   * Scoped to the authenticated user rather than an id in the path: this is the
+   * only self-service profile write, and accepting `:id` here would be an
+   * account-takeover primitive waiting for someone to copy it from a sibling
+   * controller.
+   */
+  async updateProfile(userId: string, dto: UpdateUserDto) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { id: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        name: dto.name,
+        email: dto.email,
+        preferredLocale: dto.preferredLocale,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        avatarUrl: true,
+        preferredLocale: true,
+        role: true,
+      },
+    });
+
+    return updated;
+  }
+
   async getProfile(id: string) {
     const user = await this.prisma.user.findFirst({
       where: { id, deletedAt: null },
@@ -72,6 +111,7 @@ export class UsersService {
         phone: true,
         name: true,
         avatarUrl: true,
+        preferredLocale: true,
         isVerified: true,
         role: true,
         roleId: true,

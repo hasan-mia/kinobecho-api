@@ -8,6 +8,7 @@ import {
   BannerLinkType,
   BannerPlacement,
   HomeSectionType,
+  Locale,
   Prisma,
   ProductStatus,
 } from '@prisma/client';
@@ -15,6 +16,8 @@ import { PrismaService } from '../../database/prisma.service';
 import { RedisCacheService } from '../../common/cache/redis-cache.service';
 import { StorageService } from '../storage/storage.service';
 import { ProductPricingService } from '../product/pricing/product-pricing.service';
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from '../../common/i18n/locale.util';
+import { applyTranslation } from '../../common/i18n/translation.util';
 import {
   CreateBannerDto,
   CreateSectionDto,
@@ -39,6 +42,7 @@ const PRODUCT_CARD_INCLUDE = {
     select: { minQty: true, maxQty: true, unitPrice: true },
   },
   vendor: { select: { id: true, businessName: true, slug: true } },
+  translations: true,
 } satisfies Prisma.ProductInclude;
 
 type ProductCardRow = Prisma.ProductGetPayload<{
@@ -130,8 +134,11 @@ export class CmsService {
    * invalidates. Two minutes is a safety net for a missed invalidation, not the
    * freshness model.
    */
-  async getHome(): Promise<HomePayload> {
-    const cached = await this.cache.get<HomePayload>(HOME_CACHE_KEY);
+  async getHome(locale: Locale = DEFAULT_LOCALE): Promise<HomePayload> {
+    // Locale is part of the cache key. A single entry would let one Bengali
+    // request pin Bengali names in the payload every English visitor then reads.
+    const cacheKey = `${HOME_CACHE_KEY}:${locale}`;
+    const cached = await this.cache.get<HomePayload>(cacheKey);
 
     if (cached) {
       return cached;
@@ -162,10 +169,10 @@ export class CmsService {
 
     const payload: HomePayload = {
       banners: banners.map((b) => this.toBannerView(b)),
-      sections: await Promise.all(sections.map((s) => this.resolveSection(s))),
+      sections: await Promise.all(sections.map((s) => this.resolveSection(s, locale))),
     };
 
-    await this.cache.set(HOME_CACHE_KEY, payload, HOME_CACHE_TTL);
+    await this.cache.set(cacheKey, payload, HOME_CACHE_TTL);
 
     return payload;
   }
@@ -590,13 +597,16 @@ export class CmsService {
   }
 
   /** Resolves one section's references into renderable cards. */
-  private async resolveSection(section: {
-    id: string;
-    title: string;
-    type: HomeSectionType;
-    config: Prisma.JsonValue;
-    sortOrder: number;
-  }): Promise<HomeSectionView> {
+  private async resolveSection(
+    section: {
+      id: string;
+      title: string;
+      type: HomeSectionType;
+      config: Prisma.JsonValue;
+      sortOrder: number;
+    },
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<HomeSectionView> {
     const config = (section.config ?? {}) as Record<string, unknown>;
     const base = {
       id: section.id,
@@ -619,7 +629,7 @@ export class CmsService {
           // Section order is the display order, so the ids come back in the
           // order the admin entered rather than by whatever the database
           // returns.
-          products: await this.resolveProductCards(ids),
+          products: await this.resolveProductCards(ids, locale),
         };
       }
 
@@ -629,7 +639,13 @@ export class CmsService {
         const categories = ids.length
           ? await this.prisma.category.findMany({
               where: { id: { in: ids }, isActive: true, deletedAt: null },
-              select: { id: true, name: true, slug: true, imageUrl: true },
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                imageUrl: true,
+                translations: true,
+              },
             })
           : [];
         const byId = new Map(categories.map((c) => [c.id, c]));
@@ -638,7 +654,8 @@ export class CmsService {
           ...base,
           categories: ids
             .map((id) => byId.get(id))
-            .filter((c): c is NonNullable<typeof c> => Boolean(c)),
+            .filter((c): c is NonNullable<typeof c> => Boolean(c))
+            .map((c) => applyTranslation(c, c.translations, locale)),
         };
       }
 
@@ -677,7 +694,10 @@ export class CmsService {
    * cards: an operator disabling a product should empty its slot on the home
    * page without them having to edit the section.
    */
-  private async resolveProductCards(ids: string[]): Promise<ProductCardView[]> {
+  private async resolveProductCards(
+    ids: string[],
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<ProductCardView[]> {
     if (ids.length === 0) {
       return [];
     }
@@ -696,10 +716,14 @@ export class CmsService {
       .map((id) => byId.get(id))
       .filter((p): p is ProductCardRow => Boolean(p));
 
-    return Promise.all(ordered.map((p) => this.toProductCard(p)));
+    return Promise.all(ordered.map((p) => this.toProductCard(p, locale)));
   }
 
-  private async toProductCard(product: ProductCardRow): Promise<ProductCardView> {
+  private async toProductCard(
+    row: ProductCardRow,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<ProductCardView> {
+    const product = applyTranslation(row, row.translations, locale);
     const totalStock = product.variants.reduce((sum, v) => sum + v.stock, 0);
 
     // Same fallback as the wishlist: a wholesale-only product cannot be priced
@@ -782,7 +806,9 @@ export class CmsService {
    */
   private async invalidateHome() {
     try {
-      await this.cache.del(HOME_CACHE_KEY);
+      await this.cache.del(
+        SUPPORTED_LOCALES.map((locale) => `${HOME_CACHE_KEY}:${locale}`),
+      );
     } catch (error) {
       this.logger.warn(
         `Failed to invalidate ${HOME_CACHE_KEY}: ${(error as Error).message}`,

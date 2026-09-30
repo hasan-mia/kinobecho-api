@@ -13,7 +13,9 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { Locale } from '@prisma/client';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { LocaleParam } from '../../common/decorators/locale.decorator';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { WishlistService } from './wishlist.service';
 import { ListWishlistQueryDto } from './dto/wishlist.dto';
@@ -50,7 +52,8 @@ export class WishlistController {
   list(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListWishlistQueryDto,
+    @LocaleParam() locale: Locale,
   ) {
-    return this.wishlist.list(user, query);
+    return this.wishlist.list(user, query, locale);
   }
 }

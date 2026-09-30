@@ -1,3 +1,5 @@
+import { Locale } from '@prisma/client';
+
 const BASE_LAYOUT = `
 <!DOCTYPE html>
 <html>
@@ -24,7 +26,7 @@ const BASE_LAYOUT = `
       {{content}}
     </div>
     <div class="footer">
-      <p>&copy; {{year}} KinoBecho. All rights reserved.</p>
+      <p>&copy; {{year}} KinoBecho. {{rightsReserved}}</p>
     </div>
   </div>
 </body>
@@ -147,26 +149,160 @@ const TEMPLATES: Record<string, string> = {
   `,
 };
 
-export function renderTemplate(templateKey: string, payload: Record<string, string | number>): string {
-  const template = TEMPLATES[templateKey];
-  if (!template) {
+/**
+ * Bengali overrides, keyed `templateKey` then locale.
+ *
+ * Only keys listed here have a translation; everything else resolves to the
+ * English template. That is deliberate rather than an oversight — a notification
+ * with no translation must still be sent, in a language the recipient can read,
+ * rather than dropped or sent with raw placeholder braces.
+ */
+const TRANSLATED_TEMPLATES: Partial<Record<string, Partial<Record<Locale, string>>>> = {
+  'order-confirmation': {
+    bn: `
+      <p>নমস্কার {{name}},</p>
+      <p>আপনার অর্ডার নিশ্চিত হয়েছে! অর্ডার <strong>#{{orderNumber}}</strong> গৃহীত হয়েছে।</p>
+      <p>মোট: <strong>{{currency}} {{total}}</strong></p>
+      <p><a href="{{orderUrl}}" class="button">অর্ডার দেখুন</a></p>
+      <p>অর্ডার পাঠানো হলে আমরা আপনাকে জানাব।</p>
+    `,
+  },
+  'kyc-approved': {
+    bn: `
+      <p>নমস্কার {{name}},</p>
+      <p>আপনার KYC ডকুমেন্ট <strong>অনুমোদিত</strong> হয়েছে।</p>
+      <p>আপনার ভেন্ডর অ্যাকাউন্ট <strong>{{businessName}}</strong> এখন সক্রিয়।</p>
+      <p><a href="{{vendorUrl}}" class="button">ড্যাশবোর্ডে যান</a></p>
+    `,
+  },
+  'kyc-rejected': {
+    bn: `
+      <p>নমস্কার {{name}},</p>
+      <p>আপনার KYC ডকুমেন্ট পর্যালোচনা করা হয়েছে এবং দুঃখিতসূত্রে তা <strong>বাতিল</strong> করা হয়েছে।</p>
+      <p>কারণ: {{reason}}</p>
+      <p>অনুগ্রহ করে ডকুমেন্ট আপডেট করে আবার জমা দিন।</p>
+      <p><a href="{{vendorUrl}}" class="button">ডকুমেন্ট আপডেট করুন</a></p>
+    `,
+  },
+  'otp': {
+    bn: `
+      <p>নমস্কার {{name}},</p>
+      <p>আপনার যাচাইকরণ কোড:</p>
+      <h2 style="letter-spacing: 4px; text-align: center;">{{otp}}</h2>
+      <p>কোডটি {{expiryMinutes}} মিনিট পরে মেয়াদ শেষ হবে।</p>
+    `,
+  },
+  'low-stock-alert': {
+    bn: `
+      <p>নমস্কার {{name}},</p>
+      <p>আপনার একটি পণ্যের স্টক কমে যাচ্ছে।</p>
+      <p><strong>{{productName}}</strong> ({{sku}}) — মাত্র <strong>{{stock}}</strong> টি বাকি, সতর্কতার স্তর {{threshold}}।</p>
+      <p><a href="{{productUrl}}" class="button">স্টক আপডেট করুন</a></p>
+    `,
+  },
+};
+
+/** Text pieces that are not the template body, but still need translating. */
+const TRANSLATED_SUBJECTS: Partial<Record<string, Partial<Record<Locale, string>>>> = {
+  'order-confirmation': {
+    bn: 'অর্ডার #{{orderNumber}} নিশ্চিত হয়েছে',
+  },
+  'kyc-approved': { bn: 'আপনার KYC অনুমোদিত হয়েছে' },
+  'kyc-rejected': { bn: 'আপনার KYC বাতিল হয়েছে' },
+  otp: { bn: 'আপনার যাচাইকরণ কোড' },
+  'low-stock-alert': { bn: 'স্টক কমে যাচ্ছে: {{productName}}' },
+};
+
+const CHROME: Record<Locale, { rightsReserved: string; fallbackSubject: string }> = {
+  en: { rightsReserved: 'All rights reserved.', fallbackSubject: 'KinoBecho Notification' },
+  bn: { rightsReserved: 'সর্বস্বত্ব সংরক্ষিত।', fallbackSubject: 'কিনোবেচো নোটিফিকেশন' },
+};
+
+/**
+ * Returns the template body for a key and locale, or null when the key is
+ * unknown.
+ *
+ * A missing Bengali translation is not an error: it resolves to the English
+ * body. Returning null is reserved for an unknown key, which is a programming
+ * mistake and still throws.
+ */
+export function resolveTemplate(templateKey: string, locale: Locale): string {
+  const translated = TRANSLATED_TEMPLATES[templateKey]?.[locale];
+
+  if (translated) {
+    return translated;
+  }
+
+  const base = TEMPLATES[templateKey];
+
+  if (!base) {
     throw new Error(`Template not found: ${templateKey}`);
   }
 
+  return base;
+}
+
+/** The subject line for a key and locale, or null to let the caller supply one. */
+export function resolveSubject(
+  templateKey: string,
+  locale: Locale,
+  payload: Record<string, string | number>,
+): string | null {
+  const template = TRANSLATED_SUBJECTS[templateKey]?.[locale];
+
+  if (!template) {
+    return null;
+  }
+
+  return renderBody(template, payload);
+}
+
+export function renderTemplate(
+  templateKey: string,
+  payload: Record<string, string | number>,
+  locale: Locale = 'en',
+): string {
+  const content = renderBody(resolveTemplate(templateKey, locale), payload);
+  const chrome = CHROME[locale] ?? CHROME.en;
+  const subject =
+    resolveSubject(templateKey, locale, payload) ??
+    (typeof payload.subject === 'string' && payload.subject
+      ? payload.subject
+      : chrome.fallbackSubject);
+
+  let html = BASE_LAYOUT;
+  html = html.replace('{{subject}}', subject);
+  html = html.replace('{{content}}', content);
+  html = html.replace('{{year}}', new Date().getFullYear().toString());
+  html = html.replace('{{rightsReserved}}', chrome.rightsReserved);
+
+  return html;
+}
+
+/** Substitutes `{{placeholder}}` tokens. */
+function renderBody(
+  template: string,
+  payload: Record<string, string | number>,
+): string {
   let content = template;
+
   for (const [key, value] of Object.entries(payload)) {
     const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
     content = content.replace(placeholder, String(value));
   }
 
-  let html = BASE_LAYOUT;
-  html = html.replace('{{subject}}', payload.subject as string || 'KinoBecho Notification');
-  html = html.replace('{{content}}', content);
-  html = html.replace('{{year}}', new Date().getFullYear().toString());
-
-  return html;
+  return content;
 }
 
 export function registerTemplate(key: string, template: string): void {
   TEMPLATES[key] = template;
+}
+
+/** Registers or replaces a locale-specific template, used by tests and admin tooling. */
+export function registerTranslatedTemplate(
+  key: string,
+  locale: Locale,
+  template: string,
+): void {
+  TRANSLATED_TEMPLATES[key] = { ...TRANSLATED_TEMPLATES[key], [locale]: template };
 }

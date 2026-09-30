@@ -1,15 +1,33 @@
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Locale } from '@prisma/client';
+
+export class CategoryTranslationDto {
+  @ApiProperty({ enum: [Locale.bn] })
+  @IsEnum(Locale)
+  locale: Locale;
+
+  @ApiProperty({ example: 'ইলেকট্রনিক্স' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  name: string;
+}
 
 export class CreateCategoryDto {
   @ApiProperty({ example: 'Electronics' })
@@ -41,6 +59,14 @@ export class CreateCategoryDto {
   @IsUUID()
   @IsOptional()
   parentId?: string;
+
+  @ApiPropertyOptional({ type: [CategoryTranslationDto] })
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => CategoryTranslationDto)
+  @IsOptional()
+  translations?: CategoryTranslationDto[];
 }
 
 export class UpdateCategoryDto {
@@ -73,6 +99,14 @@ export class UpdateCategoryDto {
   @IsUUID()
   @IsOptional()
   parentId?: string;
+
+  @ApiPropertyOptional({ type: [CategoryTranslationDto], description: 'Replaces all translations' })
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => CategoryTranslationDto)
+  @IsOptional()
+  translations?: CategoryTranslationDto[];
 }
 
 export class CategoryIdParamDto {

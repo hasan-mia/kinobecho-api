@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  Locale,
   Prisma,
   ProductStatus,
   SaleType,
@@ -8,6 +9,8 @@ import {
 import { Meilisearch } from 'meilisearch';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisCacheService } from '../../common/cache/redis-cache.service';
+import { DEFAULT_LOCALE } from '../../common/i18n/locale.util';
+import { applyTranslation } from '../../common/i18n/translation.util';
 import {
   INDEX_SETTINGS,
   PRODUCTS_INDEX,
@@ -67,8 +70,11 @@ export interface SearchResponse {
 const PRODUCT_INCLUDE = {
   images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], take: 1 },
   vendor: { select: { id: true, businessName: true, slug: true, logoUrl: true } },
-  category: { select: { id: true, name: true, slug: true } },
-  brand: { select: { id: true, name: true, slug: true, logoUrl: true } },
+  category: { select: { id: true, name: true, slug: true, translations: true } },
+  brand: {
+    select: { id: true, name: true, slug: true, logoUrl: true, translations: true },
+  },
+  translations: true,
   _count: { select: { variants: true } },
 } satisfies Prisma.ProductInclude;
 
@@ -138,6 +144,15 @@ export class SearchService implements OnModuleInit {
       include: {
         ...PRODUCT_INCLUDE,
         variants: { select: { attributes: true } },
+        brand: {
+          select: { name: true, translations: true },
+        },
+        // Only the fields the document builder reads; loading the full
+        // PRODUCT_INCLUDE here would pull images and counts on every reindex
+        // for no benefit.
+        category: { select: { id: true, name: true, slug: true } },
+        vendor: { select: { id: true, businessName: true, slug: true, logoUrl: true } },
+        _count: { select: { variants: true } },
       },
     });
 
@@ -274,12 +289,15 @@ export class SearchService implements OnModuleInit {
    * lose the `Decimal(12,2)` the rest of the API guarantees, so the id order
    * from the index is applied to freshly-read rows.
    */
-  async searchProducts(query: SearchProductsQueryDto): Promise<SearchResponse> {
+  async searchProducts(
+    query: SearchProductsQueryDto,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<SearchResponse> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
     if (!this.enabled) {
-      return this.fallbackSearch(query, page, limit);
+      return this.fallbackSearch(query, page, limit, locale);
     }
 
     try {
@@ -297,7 +315,7 @@ export class SearchService implements OnModuleInit {
 
       const ids = result.hits.map((hit) => String(hit.id));
       const rows = await this.loadProducts(ids);
-      const items = this.toHits(rows, ids);
+      const items = this.toHits(rows, ids, locale);
 
       const facets = await this.buildFacets(result.facetDistribution, query);
 
@@ -380,15 +398,22 @@ export class SearchService implements OnModuleInit {
   private toHits(
     rows: Awaited<ReturnType<SearchService['loadProducts']>>,
     ids: string[],
+    locale: Locale = DEFAULT_LOCALE,
   ): SearchHit[] {
     const byId = new Map(rows.map((row) => [row.id, row]));
 
     return ids
       .map((id) => byId.get(id))
       .filter((row): row is NonNullable<typeof row> => row !== undefined)
-      .map((row) => ({
+      .map((row) => {
+        // The index matched on the Bengali name; the response must render the
+        // Bengali name too, or the shopper sees a result whose title does not
+        // match what they typed.
+        const product = applyTranslation(row, row.translations, locale);
+
+        return {
         id: row.id,
-        name: row.name,
+        name: product.name,
         slug: row.slug,
         // Decimal -> string, explicitly: a Decimal serialises to a string, but
         // the contract is asserted here rather than assumed.
@@ -398,10 +423,13 @@ export class SearchService implements OnModuleInit {
         soldCount: row.soldCount,
         thumbUrl: row.images[0]?.thumbUrl ?? null,
         saleType: row.saleType,
-        brand: row.brand,
+        brand: row.brand
+          ? applyTranslation(row.brand, row.brand.translations, locale)
+          : null,
         vendor: row.vendor,
-        category: row.category,
-      }));
+        category: applyTranslation(row.category, row.category.translations, locale),
+      };
+      });
   }
 
   /**
@@ -479,6 +507,7 @@ export class SearchService implements OnModuleInit {
     query: SearchProductsQueryDto,
     page: number,
     limit: number,
+    locale: Locale = DEFAULT_LOCALE,
   ): Promise<SearchResponse> {
     const where: Prisma.ProductWhereInput = {
       deletedAt: null,
@@ -489,7 +518,18 @@ export class SearchService implements OnModuleInit {
       where.OR = [
         { name: { contains: query.q, mode: 'insensitive' } },
         { description: { contains: query.q, mode: 'insensitive' } },
+        { translations: { some: { name: { contains: query.q, mode: 'insensitive' } } } },
+        {
+          translations: {
+            some: { description: { contains: query.q, mode: 'insensitive' } },
+          },
+        },
         { brand: { name: { contains: query.q, mode: 'insensitive' } } },
+        {
+          brand: {
+            translations: { some: { name: { contains: query.q, mode: 'insensitive' } } },
+          },
+        },
       ];
     }
 
@@ -635,8 +675,13 @@ export class SearchService implements OnModuleInit {
    * changes between keystrokes. The key includes the query, so two shoppers
    * typing different prefixes do not fight over one entry.
    */
-  async suggest(q: string): Promise<{ suggestions: SearchHit[]; engine: 'meilisearch' | 'postgres' }> {
-    const key = `search:suggest:${q.toLowerCase()}`;
+  async suggest(
+    q: string,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<{ suggestions: SearchHit[]; engine: 'meilisearch' | 'postgres' }> {
+    // Locale is part of the key: a single-keyed entry would let the first
+    // Bengali request pin English labels for the next minute.
+    const key = `search:suggest:${q.toLowerCase()}:${locale}`;
     const cached = await this.cache.get<SearchHit[]>(key);
 
     if (cached) {
@@ -659,7 +704,7 @@ export class SearchService implements OnModuleInit {
 
         const ids = result.hits.map((hit) => String(hit.id));
         const rows = await this.loadProducts(ids);
-        suggestions = this.toHits(rows, ids);
+        suggestions = this.toHits(rows, ids, locale);
       } catch (err) {
         this.warnUnavailable(err, 'during a suggestion lookup');
         engine = 'postgres';
@@ -667,7 +712,7 @@ export class SearchService implements OnModuleInit {
     }
 
     if (suggestions.length === 0 && engine === 'postgres') {
-      suggestions = await this.suggestFromPostgres(q);
+      suggestions = await this.suggestFromPostgres(q, locale);
     }
 
     await this.cache.set(key, suggestions, SUGGEST_TTL_SECONDS);
@@ -675,19 +720,29 @@ export class SearchService implements OnModuleInit {
     return { suggestions, engine };
   }
 
-  private async suggestFromPostgres(q: string): Promise<SearchHit[]> {
+  private async suggestFromPostgres(
+    q: string,
+    locale: Locale = DEFAULT_LOCALE,
+  ): Promise<SearchHit[]> {
     const rows = await this.prisma.product.findMany({
       where: {
         deletedAt: null,
         status: ProductStatus.ACTIVE,
-        name: { contains: q, mode: 'insensitive' },
+        // The translation is searched too, so a Bengali query still finds the
+        // product when the index is down. Parity with Meilisearch matters more
+        // than the extra predicate: a fallback that quietly searched less would
+        // look like products vanishing.
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { translations: { some: { name: { contains: q, mode: 'insensitive' } } } },
+        ],
       },
       take: SUGGEST_LIMIT,
       orderBy: { soldCount: 'desc' },
       include: PRODUCT_INCLUDE,
     });
 
-    return this.toHits(rows, rows.map((row) => row.id));
+    return this.toHits(rows, rows.map((row) => row.id), locale);
   }
 
   private warnUnavailable(err: unknown, context: string): void {

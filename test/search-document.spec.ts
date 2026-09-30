@@ -78,6 +78,11 @@ describe('toIndexDocument', () => {
       id: 'p1',
       name: 'Phone',
       description: 'A phone',
+      // Empty rather than absent for an untranslated product: a missing key
+      // and an empty one rank differently in Meilisearch, and one untranslated
+      // product must not shift how every other product scores.
+      name_bn: '',
+      description_bn: '',
       slug: 'phone',
       categoryIds: ['c-child', 'c-parent', 'c-root'],
       vendorId: 'v1',

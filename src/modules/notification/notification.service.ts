@@ -14,15 +14,17 @@ import { SMS_PROVIDER } from './sms.constants';
 import { SmsProvider } from './interfaces/sms-provider.interface';
 import { MailProvider } from './interfaces/mail-provider.interface';
 import { PushProvider } from './interfaces/push-provider.interface';
-import { renderTemplate } from './templates/template.util';
+import { renderTemplate, resolveSubject } from './templates/template.util';
 import {
   CampaignAudience,
   CampaignStatus,
+  Locale,
   NotificationChannel,
   NotificationStatus,
   Prisma,
   UserRole,
 } from '@prisma/client';
+import { DEFAULT_LOCALE, normalizeLocale } from '../../common/i18n/locale.util';
 
 interface PromotionRecipient {
   id: string;
@@ -48,7 +50,15 @@ export class NotificationService {
     subject: string,
     templateKey: string,
     payload: Record<string, string | number>,
+    /**
+     * The language to write in. Omit it and the recipient's stored preference
+     * is used, which is the normal path: a notification is triggered by an order
+     * or a moderation event, not by a request that carried a `?lang=`.
+     */
+    locale?: Locale | null,
   ) {
+    const resolved = locale ?? (await this.localeForUser(userId));
+
     const log = await this.prisma.notificationLog.create({
       data: {
         channel: NotificationChannel.EMAIL,
@@ -57,13 +67,25 @@ export class NotificationService {
         recipient: to,
         subject,
         templateKey,
+        locale: resolved,
         payload: payload as Prisma.InputJsonValue,
       },
     });
 
     try {
-      const html = renderTemplate(templateKey, { ...payload, subject });
-      const result = await this.mailProvider.sendMail(to, subject, html);
+      const html = renderTemplate(
+        templateKey,
+        { ...payload, subject },
+        resolved,
+      );
+      // A translated template supplies its own subject; an English one keeps
+      // the caller's. Mixing a Bengali body under an English subject would read
+      // as a bug to the recipient.
+      const result = await this.mailProvider.sendMail(
+        to,
+        resolveSubject(templateKey, resolved, payload) ?? subject,
+        html,
+      );
 
       await this.prisma.notificationLog.update({
         where: { id: log.id },
@@ -106,7 +128,14 @@ export class NotificationService {
     templateKey: string,
     payload: Record<string, string | number> = {},
     userId?: string | null,
+    locale?: Locale | null,
   ) {
+    // An OTP may be requested for a phone with no user row yet, so there is no
+    // stored preference to read and the default locale is correct.
+    const resolved =
+      locale ??
+      (userId ? await this.localeForUser(userId) : DEFAULT_LOCALE);
+
     const log = await this.prisma.notificationLog.create({
       data: {
         channel: NotificationChannel.SMS,
@@ -114,6 +143,7 @@ export class NotificationService {
         userId: userId ?? null,
         recipient: to,
         templateKey,
+        locale: resolved,
         payload: payload as Prisma.InputJsonValue,
       },
     });
@@ -171,7 +201,14 @@ export class NotificationService {
     return this.prisma.deviceToken.delete({ where: { token } });
   }
 
-  async sendPushToUser(userId: string, title: string, body: string, data?: Record<string, string>) {
+  async sendPushToUser(
+    userId: string,
+    title: string,
+    body: string,
+    data?: Record<string, string>,
+    locale?: Locale | null,
+  ) {
+    const resolved = locale ?? (await this.localeForUser(userId));
     const deviceTokens = await this.prisma.deviceToken.findMany({
       where: { userId, isActive: true },
       select: { token: true, id: true },
@@ -197,6 +234,7 @@ export class NotificationService {
             recipient: token,
             subject: title,
             templateKey: 'push-notification',
+            locale: resolved,
             payload: { body, data } as Prisma.InputJsonValue,
             sentAt: isSuccess ? new Date() : null,
             error: isSuccess ? null : 'FCM delivery failed',
@@ -217,6 +255,37 @@ export class NotificationService {
     }
 
     return { successCount: result.successCount, failedCount: result.failedTokens.length };
+  }
+
+  /**
+   * The language a user should be written to in.
+   *
+   * Read from the user row rather than a request header, because most
+   * notifications are triggered by an order state change long after the request
+   * that caused it. A read failure resolves to the default rather than failing
+   * the send: an email in the wrong language is better than no email.
+   */
+  private async localeForUser(
+    userId: string | null | undefined,
+  ): Promise<Locale> {
+    if (!userId) {
+      return DEFAULT_LOCALE;
+    }
+
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { preferredLocale: true },
+      });
+
+      return normalizeLocale(user?.preferredLocale) ?? DEFAULT_LOCALE;
+    } catch (err) {
+      this.logger.warn(
+        `Could not read locale for user ${userId}: ${(err as Error).message}`,
+      );
+
+      return DEFAULT_LOCALE;
+    }
   }
 
   async resolveCampaignRecipients(

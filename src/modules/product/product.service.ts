@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Locale,
   Prisma,
   ProductStatus,
   SaleType,
@@ -14,6 +15,8 @@ import {
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { slugify } from '../../common/utils/slug.util';
+import { DEFAULT_LOCALE } from '../../common/i18n/locale.util';
+import { applyTranslation } from '../../common/i18n/translation.util';
 import { ProductPricingService } from './pricing/product-pricing.service';
 import { SearchSyncService } from '../search/search-sync.service';
 import {
@@ -86,10 +89,24 @@ export class ProductService {
               })),
             }
           : undefined,
+        // `upsert` rather than `create`: the unique [productId, locale] means a
+        // retried create for an existing product should update the translation
+        // rather than throw P2002, and the nested write cannot know yet whether
+        // the row is there.
+        translations: dto.translations?.length
+          ? {
+              create: dto.translations.map((t) => ({
+                locale: t.locale,
+                name: t.name,
+                description: t.description ?? null,
+              })),
+            }
+          : undefined,
       },
       include: {
         variants: true,
         priceTiers: { orderBy: { minQty: 'asc' } },
+        translations: true,
       },
     });
 
@@ -98,7 +115,7 @@ export class ProductService {
     return created;
   }
 
-  async findAll(query: ListProductsQueryDto) {
+  async findAll(query: ListProductsQueryDto, locale: Locale = DEFAULT_LOCALE) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -151,8 +168,19 @@ export class ProductService {
           vendor: {
             select: { id: true, businessName: true, slug: true, logoUrl: true },
           },
-          category: { select: { id: true, name: true, slug: true } },
-          brand: { select: { id: true, name: true, slug: true, logoUrl: true } },
+          category: {
+            select: { id: true, name: true, slug: true, translations: true },
+          },
+          brand: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              logoUrl: true,
+              translations: true,
+            },
+          },
+          translations: true,
           _count: { select: { variants: true } },
         },
       }),
@@ -160,7 +188,16 @@ export class ProductService {
     ]);
 
     return {
-      items,
+      // Name and description come from the requested locale, falling back to
+      // the base English columns. `slug` is untouched: URLs stay
+      // language-independent so a shared link resolves in every locale.
+      items: items.map((product) => ({
+        ...applyTranslation(product, product.translations, locale),
+        category: applyTranslation(product.category, product.category.translations, locale),
+        brand: product.brand
+          ? applyTranslation(product.brand, product.brand.translations, locale)
+          : null,
+      })),
       meta: {
         total,
         page,
@@ -170,10 +207,11 @@ export class ProductService {
     };
   }
 
-  async findBySlug(slug: string) {
+  async findBySlug(slug: string, locale: Locale = DEFAULT_LOCALE) {
     const product = await this.prisma.product.findFirst({
       where: { slug, deletedAt: null },
       include: {
+        translations: true,
         variants: { orderBy: { createdAt: 'asc' } },
         priceTiers: { orderBy: { minQty: 'asc' } },
         images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }] },
@@ -187,8 +225,12 @@ export class ProductService {
             createdAt: true,
           },
         },
-        category: { select: { id: true, name: true, slug: true } },
-        brand: { select: { id: true, name: true, slug: true, logoUrl: true } },
+        category: {
+          select: { id: true, name: true, slug: true, translations: true },
+        },
+        brand: {
+          select: { id: true, name: true, slug: true, logoUrl: true, translations: true },
+        },
       },
     });
 
@@ -196,7 +238,13 @@ export class ProductService {
       throw new NotFoundException('Product not found');
     }
 
-    return product;
+    return {
+      ...applyTranslation(product, product.translations, locale),
+      category: applyTranslation(product.category, product.category.translations, locale),
+      brand: product.brand
+        ? applyTranslation(product.brand, product.brand.translations, locale)
+        : null,
+    };
   }
 
   async findOne(id: string) {
@@ -236,21 +284,42 @@ export class ProductService {
           ? await this.generateUniqueSlug(dto.name, id)
           : undefined;
 
-    const updated = await this.prisma.product.update({
-      where: { id: product.id },
-      data: {
-        brandId: dto.brandId,
-        categoryId: dto.categoryId,
-        name: dto.name,
-        slug,
-        description: dto.description,
-        saleType: dto.saleType,
-        status: dto.status,
-        price:
-          dto.price !== undefined ? new Prisma.Decimal(dto.price) : undefined,
-        minOrderQty: dto.minOrderQty,
-        countryOfOrigin: dto.countryOfOrigin,
-      },
+    // Translations are replaced wholesale rather than merged, because a locale
+    // absent from the payload has to be deletable — a merge would leave a
+    // translation the vendor can no longer remove.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (dto.translations !== undefined) {
+        await tx.productTranslation.deleteMany({
+          where: { productId: product.id },
+        });
+      }
+
+      return tx.product.update({
+        where: { id: product.id },
+        data: {
+          brandId: dto.brandId,
+          categoryId: dto.categoryId,
+          name: dto.name,
+          slug,
+          description: dto.description,
+          saleType: dto.saleType,
+          status: dto.status,
+          price:
+            dto.price !== undefined ? new Prisma.Decimal(dto.price) : undefined,
+          minOrderQty: dto.minOrderQty,
+          countryOfOrigin: dto.countryOfOrigin,
+          translations: dto.translations?.length
+            ? {
+                create: dto.translations.map((t) => ({
+                  locale: t.locale,
+                  name: t.name,
+                  description: t.description ?? null,
+                })),
+              }
+            : undefined,
+        },
+        include: { translations: true },
+      });
     });
 
     await this.search.enqueueUpsert(updated.id);

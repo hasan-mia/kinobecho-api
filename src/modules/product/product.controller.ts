@@ -21,7 +21,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { Locale, UserRole } from '@prisma/client';
 import { ProductService } from './product.service';
 import { ProductImageService } from './product-image.service';
 import { ALLOWED_MIME_SIZES } from '../storage/storage.service';
@@ -35,6 +35,7 @@ import {
 } from './dto/product.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { LocaleParam } from '../../common/decorators/locale.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
@@ -190,15 +191,15 @@ export class ProductController {
 
   @Get()
   @Public()
-  @ApiOperation({ summary: 'List products' })
-  findAll(@Query() query: ListProductsQueryDto) {
-    return this.productService.findAll(query);
+  @ApiOperation({ summary: 'List products (?lang=bn to translate)' })
+  findAll(@Query() query: ListProductsQueryDto, @LocaleParam() locale: Locale) {
+    return this.productService.findAll(query, locale);
   }
 
   @Get(':slug')
   @Public()
-  @ApiOperation({ summary: 'Get a product by slug' })
-  findBySlug(@Param('slug') slug: string) {
-    return this.productService.findBySlug(slug);
+  @ApiOperation({ summary: 'Get a product by slug (?lang=bn to translate)' })
+  findBySlug(@Param('slug') slug: string, @LocaleParam() locale: Locale) {
+    return this.productService.findBySlug(slug, locale);
   }
 }

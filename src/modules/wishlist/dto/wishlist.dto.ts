@@ -1,8 +1,9 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { LocaleQueryDto } from '../../../common/dto/locale-query.dto';
 
-export class ListWishlistQueryDto {
+export class ListWishlistQueryDto extends LocaleQueryDto {
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @Type(() => Number)
   @IsInt()

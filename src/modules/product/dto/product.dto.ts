@@ -12,11 +12,37 @@ import {
   IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { ProductStatus, SaleType } from '@prisma/client';
+import { Locale, ProductStatus, SaleType } from '@prisma/client';
+import { LocaleQueryDto } from '../../../common/dto/locale-query.dto';
+
+/**
+ * One language's override of the product's user-facing copy.
+ *
+ * Only `locale: 'bn'` is meaningful — the base `name`/`description` columns
+ * hold English, and writing a translation row for English would create a second
+ * source of truth that could drift from them.
+ */
+export class ProductTranslationDto {
+  @ApiProperty({ enum: [Locale.bn], example: Locale.bn })
+  @IsEnum(Locale)
+  locale: Locale;
+
+  @ApiProperty({ example: 'সনি ব্রাভিয়া ৫৫" ৪কে স্মার্ট টিভি' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  name: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  description?: string;
+}
 
 export class CreateProductVariantDto {
   @ApiProperty({ example: 'KB-TV-55-4K' })
@@ -130,6 +156,13 @@ export class CreateProductDto {
   @Type(() => CreatePriceTierDto)
   @IsOptional()
   priceTiers?: CreatePriceTierDto[];
+
+  @ApiPropertyOptional({ type: [ProductTranslationDto], description: 'Per-locale copy overrides' })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductTranslationDto)
+  @IsOptional()
+  translations?: ProductTranslationDto[];
 }
 
 export class UpdateProductDto {
@@ -184,6 +217,18 @@ export class UpdateProductDto {
   @IsString()
   @IsOptional()
   countryOfOrigin?: string;
+
+  /**
+   * Replaces the listed translations wholesale: a locale absent from this array
+   * is deleted, so sending `translations: []` reverts the product to English
+   * only. A merge would make a removal impossible to express.
+   */
+  @ApiPropertyOptional({ type: [ProductTranslationDto], description: 'Replaces all translations' })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductTranslationDto)
+  @IsOptional()
+  translations?: ProductTranslationDto[];
 }
 
 export class UpdateVariantDto {
@@ -211,7 +256,7 @@ export class UpdateVariantDto {
   attributes?: Record<string, string | number | boolean>;
 }
 
-export class ListProductsQueryDto {
+export class ListProductsQueryDto extends LocaleQueryDto {
   @ApiPropertyOptional({ default: 1 })
   @Type(() => Number)
   @IsInt()

@@ -15,6 +15,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { User } from '@prisma/client';
 import { CreateAddressDto, UpdateAddressDto } from './dto/address.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -43,6 +44,20 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'User details' })
   async findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
+  }
+
+  @Patch('me')
+  @ApiOperation({
+    summary: 'Update the current user profile',
+    description:
+      'Includes `preferredLocale`, which decides the language notifications ' +
+      'are written in.',
+  })
+  updateProfile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateUserDto,
+  ) {
+    return this.usersService.updateProfile(user.id, dto);
   }
 
   @Get('me/addresses')

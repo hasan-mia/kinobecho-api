@@ -11,6 +11,7 @@ import {
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { SaleType } from '@prisma/client';
+import { LocaleQueryDto } from '../../../common/dto/locale-query.dto';
 
 export enum SearchSort {
   RELEVANCE = 'relevance',
@@ -21,7 +22,7 @@ export enum SearchSort {
   RATING = 'rating',
 }
 
-export class SearchProductsQueryDto {
+export class SearchProductsQueryDto extends LocaleQueryDto {
   @ApiPropertyOptional({ description: 'Free-text query; empty returns the facet set' })
   @IsOptional()
   @IsString()
@@ -91,7 +92,7 @@ export class SearchProductsQueryDto {
   limit?: number;
 }
 
-export class SuggestQueryDto {
+export class SuggestQueryDto extends LocaleQueryDto {
   @ApiPropertyOptional({ minLength: 2 })
   @IsString()
   @Length(2, 100)

@@ -3,6 +3,7 @@ import {
   BannerLinkType,
   BannerPlacement,
   HomeSectionType,
+  Locale,
   Prisma,
 } from '@prisma/client';
 import {
@@ -17,6 +18,8 @@ import { StorageService } from '../src/modules/storage/storage.service';
 import { ProductPricingService } from '../src/modules/product/pricing/product-pricing.service';
 
 const HOME_CACHE_KEY = 'cms:home';
+/** The payload is cached per locale, so a key is always the base plus one. */
+const homeKey = (locale: Locale = Locale.en) => `${HOME_CACHE_KEY}:${locale}`;
 
 const banner = (overrides: Record<string, unknown> = {}) => ({
   id: 'b1',
@@ -148,7 +151,7 @@ describe('CmsService.getHome — date-range filtering', () => {
 
     await service.getHome();
 
-    expect(cache.set).toHaveBeenCalledWith(HOME_CACHE_KEY, expect.any(Object), 120);
+    expect(cache.set).toHaveBeenCalledWith(homeKey(), expect.any(Object), 120);
   });
 });
 
@@ -162,7 +165,7 @@ describe('CmsService — cache invalidation on admin writes', () => {
       placement: BannerPlacement.HOME_HERO,
     } as never);
 
-    expect(cache.del).toHaveBeenCalledWith(HOME_CACHE_KEY);
+    expect(cache.del).toHaveBeenCalledWith([homeKey(), homeKey(Locale.bn)]);
   });
 
   it('drops it when a banner is updated, deleted or reordered', async () => {
@@ -176,7 +179,7 @@ describe('CmsService — cache invalidation on admin writes', () => {
     await service.reorderBanners(BannerPlacement.HOME_HERO, ['b1']);
 
     expect(cache.del).toHaveBeenCalledTimes(3);
-    expect(cache.del).toHaveBeenCalledWith(HOME_CACHE_KEY);
+    expect(cache.del).toHaveBeenCalledWith([homeKey(), homeKey(Locale.bn)]);
   });
 
   it('drops it on every section write', async () => {

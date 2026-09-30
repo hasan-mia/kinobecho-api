@@ -20,7 +20,7 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { BannerPlacement, UserRole } from '@prisma/client';
+import { BannerPlacement, Locale, UserRole } from '@prisma/client';
 import { CmsService } from './cms.service';
 import {
   BannerIdParamDto,
@@ -35,6 +35,7 @@ import {
   UploadBannerImageDto,
 } from './dto/cms.dto';
 import { Public } from '../../common/decorators/public.decorator';
+import { LocaleParam } from '../../common/decorators/locale.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -51,8 +52,8 @@ export class CmsController {
   @Get('home')
   @Public()
   @ApiOperation({ summary: 'Get the storefront home payload (banners + resolved sections)' })
-  getHome() {
-    return this.cmsService.getHome();
+  getHome(@LocaleParam() locale: Locale) {
+    return this.cmsService.getHome(locale);
   }
 
   // -------------------------------------------------------------------------

@@ -3,10 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, ProductStatus } from '@prisma/client';
+import { Locale, Prisma, ProductStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { AuthenticatedUser } from '../../common/guards/roles.guard';
 import { ProductPricingService } from '../product/pricing/product-pricing.service';
+import { DEFAULT_LOCALE } from '../../common/i18n/locale.util';
+import { applyTranslation } from '../../common/i18n/translation.util';
 import { ListWishlistQueryDto } from './dto/wishlist.dto';
 
 /**
@@ -30,6 +32,9 @@ const WISHLIST_INCLUDE = {
         select: { minQty: true, maxQty: true, unitPrice: true },
       },
       vendor: { select: { id: true, businessName: true, slug: true } },
+      // A saved item is a product card, so it renders the same translated name
+      // the product page would.
+      translations: true,
     },
   },
 } satisfies Prisma.WishlistItemInclude;
@@ -106,7 +111,11 @@ export class WishlistService {
    * destroy a saved list, and re-activating the product should make it reappear
    * without the buyer doing anything.
    */
-  async list(user: AuthenticatedUser, query: ListWishlistQueryDto) {
+  async list(
+    user: AuthenticatedUser,
+    query: ListWishlistQueryDto,
+    locale: Locale = DEFAULT_LOCALE,
+  ) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -124,14 +133,14 @@ export class WishlistService {
     ]);
 
     return {
-      items: await Promise.all(rows.map((row) => this.toView(row))),
+      items: await Promise.all(rows.map((row) => this.toView(row, locale))),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 
   /** Flattens a row into the shape the storefront renders. */
-  private async toView(row: WishlistRow) {
-    const product = row.product;
+  private async toView(row: WishlistRow, locale: Locale = DEFAULT_LOCALE) {
+    const product = applyTranslation(row.product, row.product.translations, locale);
     const totalStock = product.variants.reduce(
       (sum, variant) => sum + variant.stock,
       0,
@@ -154,6 +163,7 @@ export class WishlistService {
       product: {
         id: product.id,
         name: product.name,
+        // Unchanged by locale: a shared link must resolve in every locale.
         slug: product.slug,
         price: price.toFixed(2),
         available: product.status === ProductStatus.ACTIVE && product.deletedAt === null,

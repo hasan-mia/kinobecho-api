@@ -26,6 +26,11 @@ enum UserRole {
   CUSTOMER
 }
 
+enum Locale {
+  en
+  bn
+}
+
 enum KycStatus {
   PENDING
   APPROVED
@@ -300,6 +305,7 @@ model User {
   roleId             String?
   rbacRole Role? @relation("RoleToUser_1", fields: [roleId], references: [id])
   avatarUrl          String?
+  preferredLocale    Locale               @default(en)
   isVerified         Boolean              @default(false)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
@@ -359,24 +365,25 @@ model Vendor {
 }
 
 model Category {
-  id        String     @id @default(uuid())
-  name      String
-  slug      String     @unique
-  imageUrl  String?
-  sortOrder Int        @default(0)
-  isActive  Boolean    @default(true)
-  parentId  String?
+  id           String                @id @default(uuid())
+  name         String
+  slug         String                @unique
+  imageUrl     String?
+  sortOrder    Int                   @default(0)
+  isActive     Boolean               @default(true)
+  parentId     String?
   parent Category? @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
   products Product[] @relation("CategoryToProduct_1")
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  translations CategoryTranslation[] @relation("CategoryToCategoryTranslation_1")
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
   @@index([parentId])
   @@map("categories")
 }
 
 model Product {
-  id              String             @id @default(uuid())
+  id              String               @id @default(uuid())
   brandId         String?
   brand Brand? @relation("ProductToBrand_1", fields: [brandId], references: [id], onDelete: SetNull)
   vendorId        String
@@ -384,19 +391,19 @@ model Product {
   categoryId      String
   category Category @relation("CategoryToProduct_1", fields: [categoryId], references: [id], onDelete: Restrict)
   name            String
-  slug            String             @unique
+  slug            String               @unique
   description     String?
-  saleType        SaleType           @default(RETAIL)
-  status          ProductStatus      @default(DRAFT)
-  price           Decimal            @db.Decimal(12, 2)
+  saleType        SaleType             @default(RETAIL)
+  status          ProductStatus        @default(DRAFT)
+  price           Decimal              @db.Decimal(12, 2)
   minOrderQty     Int?
-  weightGrams     Int                @default(500)
+  weightGrams     Int                  @default(500)
   countryOfOrigin String?
-  ratingAvg       Decimal            @default(0) @db.Decimal(3, 2)
-  ratingCount     Int                @default(0)
-  soldCount       Int                @default(0)
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  ratingAvg       Decimal              @default(0) @db.Decimal(3, 2)
+  ratingCount     Int                  @default(0)
+  soldCount       Int                  @default(0)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
   deletedAt       DateTime?
   variants ProductVariant[] @relation("ProductToProductVariant_1")
   priceTiers ProductPriceTier[] @relation("ProductToProductPriceTier_1")
@@ -406,6 +413,7 @@ model Product {
   wishlistItems WishlistItem[] @relation("WishlistItemToProduct_1")
   questions ProductQuestion[] @relation("ProductToProductQuestion_1")
   flashSaleItems FlashSaleItem[] @relation("ProductToFlashSaleItem_1")
+  translations ProductTranslation[] @relation("ProductToProductTranslation_1")
   @@index([vendorId, status])
   @@index([categoryId])
   @@index([brandId])
@@ -710,6 +718,7 @@ model NotificationLog {
   recipient   String // email address, phone number, or device token — kept even if user deleted
   subject     String? // email only
   templateKey String? // e.g. "order-confirmation", "promo-blast", "otp"
+  locale      Locale?
   payload     Json? // template variables used, for debugging/resend
   campaignId  String?
   campaign PromotionCampaign? @relation("NotificationLogToPromotionCampaign_1", fields: [campaignId], references: [id], onDelete: SetNull)
@@ -918,7 +927,7 @@ model ReturnRequest {
 // --- STUBS (introduced in a later stage) ---
 
 model Brand {
-  id        String    @id @default(uuid())
+  id           String             @id @default(uuid())
   products Product[] @relation("ProductToBrand_1")
   @@map("brands")
 }
@@ -958,4 +967,18 @@ model FlashSaleItem {
   variant ProductVariant? @relation("ProductVariantToFlashSaleItem_1", fields: [variantId], references: [id], onDelete: Cascade)
   orderItems OrderItem[] @relation("OrderItemToFlashSaleItem_1")
   @@map("flash_sale_items")
+}
+
+model CategoryTranslation {
+  id         String   @id @default(uuid())
+  categoryId String
+  category Category @relation("CategoryToCategoryTranslation_1", fields: [categoryId], references: [id], onDelete: Cascade)
+  @@map("category_translations")
+}
+
+model ProductTranslation {
+  id          String   @id @default(uuid())
+  productId   String
+  product Product @relation("ProductToProductTranslation_1", fields: [productId], references: [id], onDelete: Cascade)
+  @@map("product_translations")
 }

@@ -1,12 +1,28 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
+  IsEnum,
   IsOptional,
   IsString,
   IsUrl,
   Length,
+  ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Locale } from '@prisma/client';
+
+export class BrandTranslationDto {
+  @ApiProperty({ enum: [Locale.bn] })
+  @IsEnum(Locale)
+  locale: Locale;
+
+  @ApiProperty({ example: 'স্যামসাং' })
+  @IsString()
+  @Length(1, 120)
+  name: string;
+}
 
 export class CreateBrandDto {
   @ApiProperty({ example: 'Samsung' })
@@ -30,6 +46,14 @@ export class CreateBrandDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ type: [BrandTranslationDto] })
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => BrandTranslationDto)
+  @IsOptional()
+  translations?: BrandTranslationDto[];
 }
 
 export class UpdateBrandDto {
@@ -55,6 +79,14 @@ export class UpdateBrandDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ type: [BrandTranslationDto], description: 'Replaces all translations' })
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => BrandTranslationDto)
+  @IsOptional()
+  translations?: BrandTranslationDto[];
 }
 
 export class ListBrandsQueryDto {

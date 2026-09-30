@@ -90,6 +90,9 @@ const STAGE_OF_MODEL = {
   HomeSection: 15,
   FlashSale: 16,
   FlashSaleItem: 16,
+  ProductTranslation: 17,
+  CategoryTranslation: 17,
+  BrandTranslation: 17,
 };
 
 const STAGE_FILES = [
@@ -109,6 +112,7 @@ const STAGE_FILES = [
   [14, '14_engagement', 'Wishlist + product Q&A'],
   [15, '15_cms', 'CMS banners + home sections'],
   [16, '16_flash_sale', 'Flash sales + sale items'],
+  [17, '17_i18n', 'Product / category / brand translations'],
 ];
 
 const SCALARS = new Set(['String', 'Int', 'Float', 'Boolean', 'DateTime', 'Json', 'Bytes', 'Decimal', 'BigInt']);
