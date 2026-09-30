@@ -215,6 +215,21 @@ enum SocialProvider {
   FACEBOOK
 }
 
+enum RfqStatus {
+  OPEN
+  QUOTED
+  ACCEPTED
+  CLOSED
+  EXPIRED
+}
+
+enum QuotationStatus {
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
 enum FlashSaleItemStatus {
   NOMINATED
   APPROVED
@@ -337,6 +352,7 @@ model User {
   productAnswers ProductAnswer[] @relation("ProductAnswerToUser_1")
   returnDecisions ReturnRequest[] @relation("ReturnDecidedBy")
   socialAccounts SocialAccount[] @relation("SocialAccountToUser_1")
+  rfqs Rfq[] @relation("RfqToBuyer_1")
   @@index([role])
   @@map("users")
 }
@@ -359,6 +375,7 @@ model Vendor {
   updatedAt         DateTime        @updatedAt
   deletedAt         DateTime?
   kycDocuments StorageFile[] @relation("VendorKycDocs")
+  quotations Quotation[] @relation("QuotationToVendor_1")
   products Product[] @relation("ProductToVendor_1")
   orders Order[] @relation("OrderVendor")
   returnRequests ReturnRequest[] @relation("ReturnRequestToVendor_1")
@@ -381,6 +398,7 @@ model Category {
   parent Category? @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
   products Product[] @relation("CategoryToProduct_1")
+  rfqs Rfq[] @relation("CategoryToRfq_1")
   translations CategoryTranslation[] @relation("CategoryToCategoryTranslation_1")
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
@@ -396,6 +414,7 @@ model Product {
   vendor Vendor @relation("ProductToVendor_1", fields: [vendorId], references: [id], onDelete: Cascade)
   categoryId      String
   category Category @relation("CategoryToProduct_1", fields: [categoryId], references: [id], onDelete: Restrict)
+  rfqs Rfq[] @relation("ProductToRfq_1")
   name            String
   slug            String               @unique
   description     String?
@@ -460,6 +479,7 @@ model ProductVariant {
   id                 String          @id @default(uuid())
   productId          String
   product Product @relation("ProductToProductVariant_1", fields: [productId], references: [id], onDelete: Cascade)
+  rfqs Rfq[] @relation("ProductVariantToRfq_1")
   sku                String          @unique
   attributes         Json
   stock              Int             @default(0)
@@ -994,4 +1014,24 @@ model SocialAccount {
   userId         String
   user User @relation("SocialAccountToUser_1", fields: [userId], references: [id], onDelete: Cascade)
   @@map("social_accounts")
+}
+
+model Quotation {
+  id           String          @id @default(uuid())
+  vendorId     String
+  vendor Vendor @relation("QuotationToVendor_1", fields: [vendorId], references: [id], onDelete: Cascade)
+  @@map("quotations")
+}
+
+model Rfq {
+  id               String          @id @default(uuid())
+  buyerId          String
+  productId        String?
+  productVariantId String?
+  categoryId       String?
+  buyer User @relation("RfqToBuyer_1", fields: [buyerId], references: [id], onDelete: Cascade)
+  product Product? @relation("ProductToRfq_1", fields: [productId], references: [id], onDelete: SetNull)
+  productVariant ProductVariant? @relation("ProductVariantToRfq_1", fields: [productVariantId], references: [id], onDelete: SetNull)
+  category Category? @relation("CategoryToRfq_1", fields: [categoryId], references: [id], onDelete: SetNull)
+  @@map("rfqs")
 }

@@ -131,6 +131,14 @@ enum SocialProvider {
   FACEBOOK
 }
 
+enum RfqStatus {
+  OPEN
+  QUOTED
+  ACCEPTED
+  CLOSED
+  EXPIRED
+}
+
 // --- MODELS ---
 
 model Address {
@@ -247,6 +255,7 @@ model User {
   productAnswers ProductAnswer[] @relation("ProductAnswerToUser_1")
   returnDecisions ReturnRequest[] @relation("ReturnDecidedBy")
   socialAccounts SocialAccount[] @relation("SocialAccountToUser_1")
+  rfqs Rfq[] @relation("RfqToBuyer_1")
   @@index([role])
   @@map("users")
 }
@@ -364,4 +373,11 @@ model SocialAccount {
   userId         String
   user User @relation("SocialAccountToUser_1", fields: [userId], references: [id], onDelete: Cascade)
   @@map("social_accounts")
+}
+
+model Rfq {
+  id               String          @id @default(uuid())
+  buyerId          String
+  buyer User @relation("RfqToBuyer_1", fields: [buyerId], references: [id], onDelete: Cascade)
+  @@map("rfqs")
 }

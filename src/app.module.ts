@@ -14,6 +14,7 @@ import {
   localPaymentsConfig,
   codConfig,
   socialAuthConfig,
+  rfqConfig,
   orderConfig,
   smsConfig,
   otpConfig,
@@ -63,6 +64,7 @@ import { ReturnsModule } from './modules/returns/returns.module';
 import { CmsModule } from './modules/cms/cms.module';
 import { FlashSaleModule } from './modules/flash-sale/flash-sale.module';
 import { ProcessorsModule } from './processors/processors.module';
+import { RfqModule } from './modules/rfq/rfq.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -160,6 +162,7 @@ import { HealthModule } from './modules/health/health.module';
     CmsModule,
     FlashSaleModule,
     ProcessorsModule,
+    RfqModule,
   ],
   providers: [
     PrismaService,

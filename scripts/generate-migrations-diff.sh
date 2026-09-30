@@ -46,6 +46,7 @@ STAGES=(
   "16_flash_sale:flash_sale"
   "17_i18n:i18n"
   "18_social_auth:social_auth"
+  "19_rfq:rfq"
 )
 
 # Prisma migration lock file (single canonical lock per provider)

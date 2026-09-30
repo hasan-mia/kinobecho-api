@@ -16,6 +16,11 @@ import { SocialIdentity } from './social-identity.interface';
 export class GoogleAuthProvider {
   private readonly logger = new Logger(GoogleAuthProvider.name);
   private readonly clientIds: string[];
+  // OAuth2Client memoises Google's signing certificates on the instance, keyed by
+  // the certs' expiry. Building one per verification would re-fetch them over
+  // the network on every sign-in, so a single client is kept for the provider's
+  // lifetime. Constructing it is free: nothing is fetched until verifyIdToken.
+  private readonly client = new OAuth2Client();
 
   constructor(private readonly configService: ConfigService) {
     this.clientIds =
@@ -60,7 +65,7 @@ export class GoogleAuthProvider {
 
   private async readPayload(idToken: string) {
     try {
-      const ticket = await new OAuth2Client().verifyIdToken({
+      const ticket = await this.client.verifyIdToken({
         idToken,
         audience: this.clientIds,
       });

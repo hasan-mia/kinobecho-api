@@ -41,6 +41,35 @@ interface VendorLine {
   flashSaleItemId: string | null;
 }
 
+/**
+ * Everything {@link OrderSplitterService.createWholesaleOrderFromQuotation} needs.
+ *
+ * Deliberately shaped so the price can only arrive as part of a quotation row
+ * the caller already persisted: there is no standalone `unitPrice` parameter to
+ * fill in from a request body.
+ */
+export interface QuotationOrderInput {
+  rfq: {
+    id: string;
+    buyerId: string;
+    title: string;
+    quantity: number;
+    deliveryDistrict: string;
+  };
+  quotation: {
+    id: string;
+    vendorId: string;
+    unitPrice: Prisma.Decimal;
+    minQty: number;
+    leadTimeDays: number;
+  };
+  variant: {
+    id: string;
+    product: { id: string; name: string; weightGrams: number };
+  };
+  shippingAddress: Prisma.InputJsonValue;
+}
+
 @Injectable()
 export class OrderSplitterService {
   private readonly logger = new Logger(OrderSplitterService.name);
@@ -289,33 +318,149 @@ export class OrderSplitterService {
 
       return { created, touchedVariantIds: [...touchedVariantIds] };
     }).then(async ({ created, touchedVariantIds }) => {
-      // Low-stock alerting runs after the transaction commits, never inside it:
-      // it sends email and push over the network, and a failed notification must
-      // not roll back a paid order. Stock has already been decremented, so the
-      // check sees the true post-purchase level.
-      if (touchedVariantIds.length > 0) {
-        try {
-          const variants = await this.prisma.productVariant.findMany({
-            where: { id: { in: touchedVariantIds } },
-            select: {
-              id: true,
-              sku: true,
-              stock: true,
-              lowStockAlertAt: true,
-              product: { select: { id: true, name: true, vendorId: true } },
-            },
-          });
-
-          await this.lowStock.checkAfterStockChange(variants);
-        } catch (error) {
-          this.logger.warn(
-            `Low-stock check failed for checkout ${orderGroupId}: ${(error as Error).message}`,
-          );
-        }
-      }
+      await this.checkLowStockAfterCommit(touchedVariantIds, `checkout ${orderGroupId}`);
 
       return created;
     });
+  }
+
+  /**
+   * Alerts vendors about low stock, after a transaction has committed.
+   *
+   * Never called inside a transaction: it sends email and push over the
+   * network, and a failed notification must not roll back a paid order. Stock
+   * has already been decremented by the time this runs, so the check sees the
+   * true post-purchase level. Failures are swallowed and logged — the order
+   * stands either way.
+   */
+  async checkLowStockAfterCommit(
+    variantIds: string[],
+    context: string,
+  ): Promise<void> {
+    if (variantIds.length === 0) {
+      return;
+    }
+
+    try {
+      const variants = await this.prisma.productVariant.findMany({
+        where: { id: { in: variantIds } },
+        select: {
+          id: true,
+          sku: true,
+          stock: true,
+          lowStockAlertAt: true,
+          product: { select: { id: true, name: true, vendorId: true } },
+        },
+      });
+
+      await this.lowStock.checkAfterStockChange(variants);
+    } catch (error) {
+      this.logger.warn(
+        `Low-stock check failed for ${context}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Creates the WHOLESALE order that fulfils an accepted quotation.
+   *
+   * This is the only path in the codebase that prices an order from something
+   * other than the catalogue, and the reason it is safe is structural rather
+   * than a matter of discipline at the call site:
+   *
+   * - the unit price is read from `input.quotation.unitPrice`, a row the caller
+   *   re-read inside its own transaction, and the method takes no price
+   *   argument of its own. A client cannot influence it, because the value
+   *   never travels through a DTO on this route at all.
+   * - the quantity comes from the RFQ, not the vendor, so a vendor cannot inflate
+   *   the order by quoting a small `minQty` and a large price against a large
+   *   RFQ quantity.
+   * - `minQty` is enforced before anything is written, so a vendor cannot have a
+   *   quotation accepted at a price that only holds above a threshold the order
+   *   falls under.
+   *
+   * It runs on the caller's transaction client so that the order, the accepted
+   * quotation, and the rejection of its competitors all commit together. An
+   * order that exists with no quotation accepted behind it would leave the
+   * vendor with stock sold at a price nobody agreed to.
+   */
+  async createWholesaleOrderFromQuotation(
+    tx: Prisma.TransactionClient,
+    input: QuotationOrderInput,
+  ): Promise<Order> {
+    const { rfq, quotation, variant } = input;
+
+    if (rfq.quantity < quotation.minQty) {
+      throw new BadRequestException(
+        `This quote applies from ${quotation.minQty} units, but the request is for ${rfq.quantity}`,
+      );
+    }
+
+    // The price override, read from the accepted quotation row and nowhere else.
+    const unitPrice = quotation.unitPrice;
+    const lineTotal = unitPrice.mul(rfq.quantity);
+
+    const shipping = await this.shipping.calculateFee(
+      [{ weightGrams: variant.product.weightGrams, qty: rfq.quantity }],
+      { district: rfq.deliveryDistrict, city: null },
+    );
+
+    // Same conditional-update pattern as cart checkout: the predicate is
+    // evaluated against the live row under the write lock, so two buyers
+    // accepting quotations for the last stock cannot both succeed.
+    const updated = await tx.productVariant.updateMany({
+      where: { id: variant.id, stock: { gte: rfq.quantity } },
+      data: { stock: { decrement: rfq.quantity } },
+    });
+
+    if (updated.count === 0) {
+      throw new BadRequestException(
+        `Insufficient stock for "${variant.product.name}"`,
+      );
+    }
+
+    const order = await tx.order.create({
+      data: {
+        orderGroupId: randomBytes(16).toString('hex'),
+        orderNumber: await this.generateOrderNumber(
+          tx,
+          this.orderNumberDatePart(),
+        ),
+        buyerId: rfq.buyerId,
+        vendorId: quotation.vendorId,
+        // Always wholesale: the buyer is transacting on a negotiated B2B price,
+        // and the sale channel is what downstream commission and payout treat
+        // differently, so it must not depend on the product's own sale type.
+        saleChannel: SaleChannel.WHOLESALE,
+        status: OrderStatus.PENDING,
+        subtotal: lineTotal,
+        discountTotal: 0,
+        shippingFee: shipping.fee,
+        grandTotal: lineTotal.plus(shipping.fee),
+        shippingAddress: input.shippingAddress,
+        expiresAt: new Date(Date.now() + this.paymentTtlMinutes() * 60_000),
+        items: {
+          create: {
+            productVariantId: variant.id,
+            productNameSnap: variant.product.name,
+            qty: rfq.quantity,
+            unitPrice,
+            lineTotal,
+          },
+        },
+        statusHistory: {
+          create: {
+            fromStatus: null,
+            toStatus: OrderStatus.PENDING,
+            note: `Created from accepted quotation on RFQ "${rfq.title}"`,
+            changedById: rfq.buyerId,
+          },
+        },
+      },
+      include: { items: true, statusHistory: true },
+    });
+
+    return order;
   }
 
   /**

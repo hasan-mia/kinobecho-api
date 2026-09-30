@@ -34,6 +34,19 @@ const BASE_LAYOUT = `
 `;
 
 const TEMPLATES: Record<string, string> = {
+  'rfq-quotation-received': `
+    <p>Hello {{name}},</p>
+    <p><strong>{{vendorName}}</strong> sent a quotation for your request
+       "<strong>{{rfqTitle}}</strong>".</p>
+    <p>Sign in to review the price, minimum quantity and lead time.</p>
+  `,
+  'rfq-quotation-accepted': `
+    <p>Hello {{name}},</p>
+    <p>Your quotation for "<strong>{{rfqTitle}}</strong>" was accepted, and order
+       <strong>#{{orderNumber}}</strong> has been created at the quoted price.</p>
+    <p>The buyer will receive a payment request shortly. Nothing further is needed
+       from you right now.</p>
+  `,
   'order-confirmation': `
     <p>Hi {{name}},</p>
     <p>Thank you for your order! Your order <strong>#{{orderNumber}}</strong> has been confirmed.</p>
@@ -158,6 +171,21 @@ const TEMPLATES: Record<string, string> = {
  * rather than dropped or sent with raw placeholder braces.
  */
 const TRANSLATED_TEMPLATES: Partial<Record<string, Partial<Record<Locale, string>>>> = {
+  'rfq-quotation-received': {
+    bn: `
+      <p>নমস্কার {{name}},</p>
+      <p><strong>{{vendorName}}</strong> আপনার অনুরোধ "<strong>{{rfqTitle}}</strong>"-এর জন্য একটি দাম পাঠিয়েছেন।</p>
+      <p>দাম, সর্বনিম্ন পরিমাণ ও ডেলিভারি সময় দেখতে সাইন ইন করুন।</p>
+    `,
+  },
+  'rfq-quotation-accepted': {
+    bn: `
+      <p>নমস্কার {{name}},</p>
+      <p>"<strong>{{rfqTitle}}</strong>"-এর জন্য আপনার দাম গৃহীত হয়েছে। অর্ডার
+         <strong>#{{orderNumber}}</strong> তৈরি হয়েছে।</p>
+      <p>শীঘ্রই ক্রেতা পেমেন্টের অনুরোধ পাবেন। এই মুহূর্তে আপনাকে আর কিছু করতে হবে না।</p>
+    `,
+  },
   'order-confirmation': {
     bn: `
       <p>নমস্কার {{name}},</p>
@@ -207,6 +235,8 @@ const TRANSLATED_SUBJECTS: Partial<Record<string, Partial<Record<Locale, string>
   'order-confirmation': {
     bn: 'অর্ডার #{{orderNumber}} নিশ্চিত হয়েছে',
   },
+  'rfq-quotation-received': { bn: '{{vendorName}} আপনার অনুরোধে দাম পাঠিয়েছেন' },
+  'rfq-quotation-accepted': { bn: 'আপনার দাম গৃহীত হয়েছে — অর্ডার #{{orderNumber}}' },
   'kyc-approved': { bn: 'আপনার KYC অনুমোদিত হয়েছে' },
   'kyc-rejected': { bn: 'আপনার KYC বাতিল হয়েছে' },
   otp: { bn: 'আপনার যাচাইকরণ কোড' },

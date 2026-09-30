@@ -34,6 +34,27 @@ enum SocialProvider {
   FACEBOOK
 }
 
+/// Lifecycle of a request for quotation.
+///
+/// A request stops being OPEN once a vendor has answered it (QUOTED) and leaves
+/// the live pool when a quotation is accepted (ACCEPTED), the buyer or the
+/// sweep closes it, or its window passes (CLOSED / EXPIRED).
+enum RfqStatus {
+  OPEN
+  QUOTED
+  ACCEPTED
+  CLOSED
+  EXPIRED
+}
+
+/// Lifecycle of one vendor's answer to a request for quotation.
+enum QuotationStatus {
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
 enum KycStatus {
   PENDING
   APPROVED
@@ -557,6 +578,7 @@ model User {
   productAnswers     ProductAnswer[]      @relation("ProductAnswerToUser_1")
   returnDecisions    ReturnRequest[]      @relation("ReturnDecidedBy")
   socialAccounts     SocialAccount[]      @relation("SocialAccountToUser_1")
+  rfqs               Rfq[]                @relation("RfqToBuyer_1")
 
   @@index([role])
   @@map("users")
@@ -587,6 +609,75 @@ model SocialAccount {
   @@map("social_accounts")
 }
 
+/// A buyer's request for quotation: "I need 500 of this, how much wholesale?".
+///
+/// Targets either a specific variant or a whole category. A category-level
+/// request is a sourcing brief rather than a wish for a known SKU, so it names
+/// no product and can only be answered with quotations; only a variant-scoped
+/// request can become an order, because an order line is required to name a
+/// concrete `ProductVariant`.
+model Rfq {
+  id               String          @id @default(uuid())
+  buyerId          String
+  buyer            User            @relation("RfqToBuyer_1", fields: [buyerId], references: [id], onDelete: Cascade)
+  productId        String?
+  product          Product?        @relation("ProductToRfq_1", fields: [productId], references: [id], onDelete: SetNull)
+  productVariantId String?
+  productVariant   ProductVariant? @relation("ProductVariantToRfq_1", fields: [productVariantId], references: [id], onDelete: SetNull)
+  categoryId       String?
+  category         Category?       @relation("CategoryToRfq_1", fields: [categoryId], references: [id], onDelete: SetNull)
+  title            String
+  description      String
+  quantity         Int
+  /// What the buyer hopes to pay, in the buyer's own words. Never used to price
+  /// anything: the accepted quotation is the only price that reaches an order.
+  targetUnitPrice  Decimal?        @db.Decimal(12, 2)
+  deliveryDistrict String
+  neededBy         DateTime?
+  status           RfqStatus       @default(OPEN)
+  /// When the request stops being answerable. Indexed with status so the expiry
+  /// sweep can find due rows without scanning the whole table.
+  expiresAt        DateTime
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  quotations       Quotation[]     @relation("RfqToQuotation_1")
+
+  @@index([buyerId, status])
+  @@index([status, expiresAt])
+  @@index([categoryId, status])
+  @@index([productId, status])
+  @@map("rfqs")
+}
+
+/// One vendor's answer to a request for quotation.
+model Quotation {
+  id           String          @id @default(uuid())
+  rfqId        String
+  rfq          Rfq             @relation("RfqToQuotation_1", fields: [rfqId], references: [id], onDelete: Cascade)
+  vendorId     String
+  vendor       Vendor          @relation("QuotationToVendor_1", fields: [vendorId], references: [id], onDelete: Cascade)
+  unitPrice    Decimal         @db.Decimal(12, 2)
+  minQty       Int
+  leadTimeDays Int
+  note         String?
+  /// When this offer stops being acceptable. Independent of the RFQ's own
+  /// window: a vendor may quote past the buyer's deadline, and the earlier of
+  /// the two is what actually ends the offer.
+  validUntil   DateTime
+  status       QuotationStatus @default(SENT)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  /// One quote per vendor per request. A second quote is refused rather than
+  /// overwriting the first, so a vendor cannot undercut a price the buyer has
+  /// already seen, and two simultaneous quotes cannot both be accepted.
+  @@unique([rfqId, vendorId])
+  @@index([rfqId, status])
+  @@index([vendorId, status])
+  @@index([status, validUntil])
+  @@map("quotations")
+}
+
 model Vendor {
   id                String          @id @default(uuid())
   userId            String          @unique
@@ -605,6 +696,7 @@ model Vendor {
   updatedAt         DateTime        @updatedAt
   deletedAt         DateTime?
   kycDocuments      StorageFile[]   @relation("VendorKycDocs")
+  quotations        Quotation[]     @relation("QuotationToVendor_1")
   products          Product[]       @relation("ProductToVendor_1")
   orders            Order[]         @relation("OrderVendor")
   returnRequests    ReturnRequest[] @relation("ReturnRequestToVendor_1")
@@ -628,6 +720,7 @@ model Category {
   parent       Category?             @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children     Category[]            @relation("CategoryTree")
   products     Product[]             @relation("CategoryToProduct_1")
+  rfqs         Rfq[]                 @relation("CategoryToRfq_1")
   translations CategoryTranslation[] @relation("CategoryToCategoryTranslation_1")
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
@@ -662,6 +755,7 @@ model Product {
   vendor          Vendor               @relation("ProductToVendor_1", fields: [vendorId], references: [id], onDelete: Cascade)
   categoryId      String
   category        Category             @relation("CategoryToProduct_1", fields: [categoryId], references: [id], onDelete: Restrict)
+  rfqs            Rfq[]                @relation("ProductToRfq_1")
   name            String
   slug            String               @unique
   description     String?
@@ -740,6 +834,7 @@ model ProductVariant {
   id                 String          @id @default(uuid())
   productId          String
   product            Product         @relation("ProductToProductVariant_1", fields: [productId], references: [id], onDelete: Cascade)
+  rfqs               Rfq[]           @relation("ProductVariantToRfq_1")
   sku                String          @unique
   attributes         Json
   stock              Int             @default(0)

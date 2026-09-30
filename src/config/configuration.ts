@@ -46,6 +46,13 @@ export const stripeConfig = registerAs('stripe', () => ({
   publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
 }));
 
+// Requests for quotation. The window is how long a request stays answerable
+// when the buyer does not say; it is a config value so the marketplace's
+// tolerance for stale demand is a business decision, not a constant in code.
+export const rfqConfig = registerAs('rfq', () => ({
+  defaultWindowDays: Number(process.env.RFQ_DEFAULT_WINDOW_DAYS ?? 7),
+}));
+
 // Social sign-in. All three are optional so that a deployment without social
 // login still boots; the endpoints answer 503 rather than failing at startup,
 // since a missing provider credential should not take the rest of the API down.
