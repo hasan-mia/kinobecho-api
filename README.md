@@ -158,6 +158,7 @@ kinobecho-api/
 │       ├── reviews/            # Reviews, verified-purchase flag, moderation
 │       ├── payments/           # Provider interface + Stripe/bKash/Nagad/SSLCommerz
 │       ├── webhooks/           # Signature-verified inbound gateway webhooks
+│       ├── returns/            # Return requests, decisions, restock, refunds
 │       ├── chat/               # Socket.io gateway + REST, Redis adapter
 │       ├── notification/       # Mail/push providers, BullMQ promo campaigns
 │       └── health/             # Liveness/readiness (DB, Redis)
@@ -281,6 +282,8 @@ npm run start:dev
 | `OTP_TTL_SECONDS` | Lifetime of an OTP code | `300` |
 | `OTP_MAX_ATTEMPTS` | Wrong-code attempts before a code is invalidated | `5` |
 | `OTP_REQUEST_LIMIT` / `OTP_REQUEST_WINDOW_SECONDS` | Per-phone OTP requests allowed per window | `3` / `600` |
+| **Returns** |||
+| `RETURN_WINDOW_DAYS` | Days after the DELIVERED history row in which a return may be filed | `7` |
 | **Images / CDN** |||
 | `CDN_BASE_URL` | When set, every public URL is `CDN_BASE_URL` + storage key | — |
 | `IMAGE_MAX_BYTES` | Reject uploads larger than this | `5242880` (5MB) |
@@ -513,6 +516,7 @@ an absent or invalid token receives `401`.
 | `GET` | `/payments/order/{orderId}` | Payment status for an order |
 | `GET` | `/payments` | List payments (scoped by role) |
 | `POST` | `/payments/refund` | Refund a settled payment |
+| `PATCH` | `/payments/refunds/{transactionId}/confirm` | Confirm a manual (COD) refund payout |
 
 ### Webhooks — `webhooks`
 
@@ -529,6 +533,40 @@ Signature-verified inbound callbacks, one per gateway:
 | `GET` | `/payouts` | Admin — all payouts |
 | `PATCH` | `/payouts/{transactionId}/approve` | Admin — approve |
 | `PATCH` | `/payouts/{transactionId}/reject` | Admin — reject |
+
+### Returns — `returns`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/returns` | Customer — file a return on a delivered order |
+| `GET` | `/returns` | Return requests filed by the current buyer |
+| `GET` | `/returns/vendor` | Vendor — requests against the current vendor's orders |
+| `GET` | `/returns/admin` | Admin — every request (filter by `status`, `vendorId`, `buyerId`, `from`, `to`) |
+| `GET` | `/returns/{id}` | Buyer, owning vendor, or admin |
+| `PATCH` | `/returns/{id}/decision` | Owning vendor or admin — `APPROVED` / `REJECTED` (note required to reject) |
+| `PATCH` | `/returns/{id}/received` | Vendor or admin — goods received; `restock` (default `true`) puts units back |
+| `POST` | `/returns/{id}/refund` | Admin (`return:refund`) — issue the refund |
+
+A return may only be filed within `RETURN_WINDOW_DAYS` of the order's
+`DELIVERED` status-history row, and per order line the quantity may not exceed
+what was bought minus what other live returns already hold.
+
+The refund is the returned lines' share of `lineTotal`, less the proportional
+share of the order discount, plus `shippingFee` when the body sets
+`includeShipping`. It is capped at whatever the order has left to give back, so
+a second return can never pay out more than was charged.
+
+- **Online payments** (Stripe/bKash/Nagad/SSLCommerz): the gateway is called and
+  the refund is written `COMPLETED` immediately.
+- **COD**: no gateway moved money, so the refund is written `PENDING` as an
+  instruction to pay the buyer by hand. An operator confirms it with
+  `PATCH /payments/refunds/{transactionId}/confirm`; only then does the order's
+  `paymentStatus` reflect it.
+
+If a payout already covers the order, the refund is booked as a negative
+`ADJUSTMENT` against the vendor and the next payout nets it off
+(`POST /payouts/request` subtracts outstanding debts, and `GET /vendors/me/wallet`
+shows them as `outstandingAdjustment`).
 
 ### Reviews — `reviews`
 

@@ -116,6 +116,24 @@ enum NotificationStatus {
   FAILED
 }
 
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  PICKUP_SCHEDULED
+  RECEIVED
+  REFUNDED
+  CLOSED
+}
+
+enum ReturnReason {
+  DAMAGED
+  WRONG_ITEM
+  NOT_AS_DESCRIBED
+  CHANGED_MIND
+  OTHER
+}
+
 enum TransactionType {
   PAYMENT
   PAYOUT
@@ -257,30 +275,33 @@ model User {
   storageFiles StorageFile[] @relation("FileOwnerUser")
   deviceTokens DeviceToken[] @relation("DeviceTokenToUser_1")
   notificationLogs NotificationLog[] @relation("NotificationLogToUser_1")
+  returnRequests ReturnRequest[] @relation("ReturnRequestToBuyer_1")
+  returnDecisions ReturnRequest[] @relation("ReturnDecidedBy")
   @@index([role])
   @@map("users")
 }
 
 model Vendor {
-  id                String        @id @default(uuid())
-  userId            String        @unique
+  id                String          @id @default(uuid())
+  userId            String          @unique
   user User @relation("UserVendor", fields: [userId], references: [id], onDelete: Cascade)
   businessName      String
-  slug              String        @unique
+  slug              String          @unique
   logoUrl           String?
   bannerUrl         String?
   description       String?
-  kycStatus         KycStatus     @default(PENDING)
-  status            VendorStatus  @default(PENDING)
-  commissionRate    Decimal       @default(10.0) @db.Decimal(5, 2)
+  kycStatus         KycStatus       @default(PENDING)
+  status            VendorStatus    @default(PENDING)
+  commissionRate    Decimal         @default(10.0) @db.Decimal(5, 2)
   payoutMethod      String?
   payoutAccountInfo Json?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   deletedAt         DateTime?
   kycDocuments StorageFile[] @relation("VendorKycDocs")
   products Product[] @relation("ProductToVendor_1")
   orders Order[] @relation("OrderVendor")
+  returnRequests ReturnRequest[] @relation("ReturnRequestToVendor_1")
   transactions Transaction[] @relation("TransactionToVendor_1")
   coupons Coupon[] @relation("CouponToVendor_1")
   chatThreads ChatThread[] @relation("ThreadVendor")
@@ -423,8 +444,8 @@ model OrderStatusHistory {
 }
 
 model Transaction {
-  id            String               @id @default(uuid())
-  vendorId      String?
+  id                 String               @id @default(uuid())
+  vendorId           String?
   vendor Vendor? @relation("TransactionToVendor_1", fields: [vendorId], references: [id], onDelete: SetNull)
   @@map("transactions")
 }
@@ -486,4 +507,15 @@ model StorageFile {
   vendor Vendor? @relation("VendorKycDocs", fields: [vendorId], references: [id], onDelete: Cascade)
   uploadedBy User? @relation("FileOwnerUser", fields: [uploadedById], references: [id], onDelete: SetNull)
   @@map("storage_files")
+}
+
+model ReturnRequest {
+  id           String       @id @default(uuid())
+  buyerId      String
+  vendorId     String
+  decidedById  String?
+  buyer User @relation("ReturnRequestToBuyer_1", fields: [buyerId], references: [id], onDelete: Restrict)
+  vendor Vendor @relation("ReturnRequestToVendor_1", fields: [vendorId], references: [id], onDelete: Restrict)
+  decidedBy User? @relation("ReturnDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  @@map("return_requests")
 }

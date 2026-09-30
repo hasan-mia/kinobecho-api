@@ -61,6 +61,12 @@ export const orderConfig = registerAs('order', () => ({
   paymentTtlMinutes: Number(process.env.ORDER_PAYMENT_TTL_MINUTES ?? 30),
 }));
 
+// Returns. The window is measured from the order's DELIVERED history row, so it
+// is expressed in days and applied against an event timestamp, not `updatedAt`.
+export const returnsConfig = registerAs('returns', () => ({
+  windowDays: Number(process.env.RETURN_WINDOW_DAYS ?? 7),
+}));
+
 export const localPaymentsConfig = registerAs('localPayments', () => ({
   bkash: {
     appKey: process.env.BKASH_APP_KEY,

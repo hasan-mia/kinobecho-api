@@ -125,6 +125,30 @@ export class VendorAnalyticsService {
       _sum: { amount: true },
     });
 
+    // Refunds on orders the vendor was *already* paid for leave the platform
+    // owing them money, booked as a negative ADJUSTMENT. Only debts a later
+    // payout has not yet netted off are outstanding; charging a settled one twice
+    // would quietly over-deduct the vendor.
+    const outstandingAdjustments = await this.prisma.transaction.aggregate({
+      where: {
+        vendorId,
+        type: TransactionType.ADJUSTMENT,
+        status: TransactionStatus.COMPLETED,
+        // `offsetByPayout: null` is the "not yet netted off" test: a debt a
+        // payout has already absorbed is settled, not outstanding.
+        offsetByPayout: null,
+      },
+      _sum: { amount: true },
+    });
+
+    const outstandingAdjustmentTotal =
+      outstandingAdjustments._sum.amount ?? ZERO();
+
+    // floored at zero: a debt larger than the balance is shown, not hidden.
+    const adjustedAvailable = availableBalance.gte(outstandingAdjustmentTotal)
+      ? availableBalance.sub(outstandingAdjustmentTotal)
+      : ZERO();
+
     const byStatus = new Map(
       payoutAggregates.map((row) => [row.status, row._sum.amount ?? ZERO()]),
     );
@@ -132,7 +156,12 @@ export class VendorAnalyticsService {
     return {
       currency: 'BDT',
       pendingBalance: pendingBalance.toFixed(2),
-      availableBalance: availableBalance.toFixed(2),
+      // `availableBalance` is net of unpaid refund debts, because that is the
+      // amount `POST /payouts` will actually let the vendor draw on. The gross
+      // figure is kept alongside so the deduction is visible, not silent.
+      availableBalance: adjustedAvailable.toFixed(2),
+      availableBalanceGross: availableBalance.toFixed(2),
+      outstandingAdjustment: outstandingAdjustmentTotal.toFixed(2),
       paidOut: (byStatus.get(TransactionStatus.COMPLETED) ?? ZERO()).toFixed(2),
       requestedBalance: (byStatus.get(TransactionStatus.PENDING) ?? ZERO()).toFixed(2),
       lifetimeEarnings: lifetimeEarnings.toFixed(2),

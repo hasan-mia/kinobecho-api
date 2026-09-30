@@ -139,6 +139,9 @@ export const envValidationSchema = Joi.object({
   SMS_HTTP_SENDER_ID: Joi.string().allow('').optional(),
   SMS_HTTP_TEMPLATE: Joi.string().allow('').optional(),
 
+  // Days after the DELIVERED history row during which a buyer may file a return.
+  RETURN_WINDOW_DAYS: Joi.number().integer().positive().default(7),
+
   OTP_TTL_SECONDS: Joi.number().integer().positive().default(300),
   OTP_MAX_ATTEMPTS: Joi.number().integer().positive().default(5),
   OTP_REQUEST_LIMIT: Joi.number().integer().positive().default(3),

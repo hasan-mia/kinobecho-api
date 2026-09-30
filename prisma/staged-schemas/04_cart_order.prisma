@@ -116,6 +116,24 @@ enum NotificationStatus {
   FAILED
 }
 
+enum ReturnStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  PICKUP_SCHEDULED
+  RECEIVED
+  REFUNDED
+  CLOSED
+}
+
+enum ReturnReason {
+  DAMAGED
+  WRONG_ITEM
+  NOT_AS_DESCRIBED
+  CHANGED_MIND
+  OTHER
+}
+
 enum TransactionType {
   PAYMENT
   PAYOUT
@@ -274,30 +292,33 @@ model User {
   storageFiles StorageFile[] @relation("FileOwnerUser")
   deviceTokens DeviceToken[] @relation("DeviceTokenToUser_1")
   notificationLogs NotificationLog[] @relation("NotificationLogToUser_1")
+  returnRequests ReturnRequest[] @relation("ReturnRequestToBuyer_1")
+  returnDecisions ReturnRequest[] @relation("ReturnDecidedBy")
   @@index([role])
   @@map("users")
 }
 
 model Vendor {
-  id                String        @id @default(uuid())
-  userId            String        @unique
+  id                String          @id @default(uuid())
+  userId            String          @unique
   user User @relation("UserVendor", fields: [userId], references: [id], onDelete: Cascade)
   businessName      String
-  slug              String        @unique
+  slug              String          @unique
   logoUrl           String?
   bannerUrl         String?
   description       String?
-  kycStatus         KycStatus     @default(PENDING)
-  status            VendorStatus  @default(PENDING)
-  commissionRate    Decimal       @default(10.0) @db.Decimal(5, 2)
+  kycStatus         KycStatus       @default(PENDING)
+  status            VendorStatus    @default(PENDING)
+  commissionRate    Decimal         @default(10.0) @db.Decimal(5, 2)
   payoutMethod      String?
   payoutAccountInfo Json?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
   deletedAt         DateTime?
   kycDocuments StorageFile[] @relation("VendorKycDocs")
   products Product[] @relation("ProductToVendor_1")
   orders Order[] @relation("OrderVendor")
+  returnRequests ReturnRequest[] @relation("ReturnRequestToVendor_1")
   transactions Transaction[] @relation("TransactionToVendor_1")
   coupons Coupon[] @relation("CouponToVendor_1")
   chatThreads ChatThread[] @relation("ThreadVendor")
@@ -454,6 +475,7 @@ model Order {
   transactions Transaction[] @relation("OrderToTransaction_1")
   transactionOrders TransactionOrder[] @relation("OrderToTransactionOrder_1")
   shipments Shipment[] @relation("OrderToShipment_1")
+  returnRequests ReturnRequest[] @relation("ReturnRequestToOrder_1")
   @@index([orderGroupId])
   @@index([buyerId, status])
   @@index([vendorId, status])
@@ -471,6 +493,7 @@ model OrderItem {
   qty              Int
   unitPrice        Decimal        @db.Decimal(12, 2)
   lineTotal        Decimal        @db.Decimal(12, 2)
+  returnItems ReturnItem[] @relation("OrderItemToReturnItem_1")
   @@index([orderId])
   @@index([productVariantId])
   @@map("order_items")
@@ -493,9 +516,9 @@ model OrderStatusHistory {
 // --- STUBS (introduced in a later stage) ---
 
 model Transaction {
-  id            String               @id @default(uuid())
-  vendorId      String?
-  orderId       String?
+  id                 String               @id @default(uuid())
+  vendorId           String?
+  orderId            String?
   vendor Vendor? @relation("TransactionToVendor_1", fields: [vendorId], references: [id], onDelete: SetNull)
   order Order? @relation("OrderToTransaction_1", fields: [orderId], references: [id], onDelete: SetNull)
   @@map("transactions")
@@ -573,4 +596,24 @@ model Shipment {
   orderId       String
   order Order @relation("OrderToShipment_1", fields: [orderId], references: [id], onDelete: Cascade)
   @@map("shipments")
+}
+
+model ReturnItem {
+  id              String        @id @default(uuid())
+  orderItemId     String
+  orderItem OrderItem @relation("OrderItemToReturnItem_1", fields: [orderItemId], references: [id], onDelete: Restrict)
+  @@map("return_items")
+}
+
+model ReturnRequest {
+  id           String       @id @default(uuid())
+  orderId      String
+  buyerId      String
+  vendorId     String
+  decidedById  String?
+  order Order @relation("ReturnRequestToOrder_1", fields: [orderId], references: [id], onDelete: Cascade)
+  buyer User @relation("ReturnRequestToBuyer_1", fields: [buyerId], references: [id], onDelete: Restrict)
+  vendor Vendor @relation("ReturnRequestToVendor_1", fields: [vendorId], references: [id], onDelete: Restrict)
+  decidedBy User? @relation("ReturnDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  @@map("return_requests")
 }

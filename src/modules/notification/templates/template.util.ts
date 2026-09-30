@@ -57,6 +57,69 @@ const TEMPLATES: Record<string, string> = {
     <div>{{{bodyHtml}}}</div>
     <p><a href="{{ctaUrl}}" class="button">{{ctaText}}</a></p>
   `,
+  'return-requested': `
+    <p>Hi {{name}},</p>
+    <p>Your return request <strong>#{{returnNumber}}</strong> for order <strong>#{{orderNumber}}</strong> has been received.</p>
+    <p>Reason: {{reason}}</p>
+    <p>You can follow its progress from your account.</p>
+  `,
+  'return-approved': `
+    <p>Hi {{name}},</p>
+    <p>Your return request <strong>#{{returnNumber}}</strong> for order <strong>#{{orderNumber}}</strong> was <strong>approved</strong>.</p>
+    <p>We'll arrange pickup and notify you when your items are collected.</p>
+  `,
+  'return-rejected': `
+    <p>Hi {{name}},</p>
+    <p>Your return request <strong>#{{returnNumber}}</strong> for order <strong>#{{orderNumber}}</strong> was <strong>rejected</strong>.</p>
+    <p>Reason: {{note}}</p>
+    <p>If you think this is a mistake, reply to this email and we will review it again.</p>
+  `,
+  'return-pickup-scheduled': `
+    <p>Hi {{name}},</p>
+    <p>A pickup has been scheduled for your return <strong>#{{returnNumber}}</strong> on order <strong>#{{orderNumber}}</strong>.</p>
+    <p>Pickup date: {{pickupDate}}</p>
+  `,
+  'return-received': `
+    <p>Hi {{name}},</p>
+    <p>We have received your returned items for <strong>#{{returnNumber}}</strong> (order <strong>#{{orderNumber}}</strong>).</p>
+    <p>Your refund is now being processed.</p>
+  `,
+  'return-refunded': `
+    <p>Hi {{name}},</p>
+    <p>Your refund for return <strong>#{{returnNumber}}</strong> (order <strong>#{{orderNumber}}</strong>) has been issued.</p>
+    <p>Refund amount: <strong>{{currency}} {{amount}}</strong></p>
+    <p>{{paymentNote}}</p>
+  `,
+  'return-closed': `
+    <p>Hi {{name}},</p>
+    <p>Return <strong>#{{returnNumber}}</strong> for order <strong>#{{orderNumber}}</strong> is now closed.</p>
+  `,
+  'vendor-return-decision': `
+    <p>Hi {{name}},</p>
+    <p>A return request <strong>#{{returnNumber}}</strong> was filed against order <strong>#{{orderNumber}}</strong>.</p>
+    <p>Reason: {{reason}}</p>
+    <p>Please review and approve or reject it.</p>
+  `,
+  'vendor-return-approved': `
+    <p>Hi {{name}},</p>
+    <p>Return <strong>#{{returnNumber}}</strong> for order <strong>#{{orderNumber}}</strong> was approved.</p>
+    <p>The buyer has been notified and pickup will be arranged.</p>
+  `,
+  'vendor-return-rejected': `
+    <p>Hi {{name}},</p>
+    <p>Return <strong>#{{returnNumber}}</strong> for order <strong>#{{orderNumber}}</strong> was rejected.</p>
+    <p>Reason: {{note}}</p>
+  `,
+  'vendor-return-received': `
+    <p>Hi {{name}},</p>
+    <p>Returned items for <strong>#{{returnNumber}}</strong> (order <strong>#{{orderNumber}}</strong>) have been marked as received.</p>
+    <p>{{restockNote}}</p>
+  `,
+  'vendor-return-refunded': `
+    <p>Hi {{name}},</p>
+    <p>A refund of <strong>{{currency}} {{amount}}</strong> was issued for return <strong>#{{returnNumber}}</strong> on order <strong>#{{orderNumber}}</strong>.</p>
+    <p>{{adjustmentNote}}</p>
+  `,
   'low-stock-alert': `
     <p>Hi {{name}},</p>
     <p>Stock is running low for one of your products.</p>

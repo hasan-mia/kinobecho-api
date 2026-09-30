@@ -83,6 +83,137 @@ export class PaymentsService {
     };
   }
 
+  /**
+   * Asks the gateway to move real money back, and returns its refund id.
+   *
+   * Exposed for callers that already resolved the payment row themselves (a
+   * return refund, for instance) and only need the rail, not a whole order
+   * refund. COD is refused rather than silently routed to the default provider:
+   * there is nothing to call, and pretending otherwise would mark money as
+   * returned that never left a gateway.
+   */
+  async refundWithGateway(
+    gateway: PaymentGateway,
+    paymentExternalRef: string,
+    amount: Prisma.Decimal,
+  ): Promise<string> {
+    if (gateway === PaymentGateway.COD) {
+      throw new BadRequestException(
+        'COD payments have no gateway to refund; confirm a manual payout instead',
+      );
+    }
+
+    const provider = this.providerFor(gateway);
+    const refund = await provider.refundPayment(
+      paymentExternalRef,
+      Math.round(Number(amount) * 100),
+    );
+
+    return refund.id;
+  }
+
+  /**
+   * Marks a PENDING refund as actually paid out, for orders that were never
+   * charged through a gateway (COD).
+   *
+   * A refund row is created PENDING precisely because the money has not moved yet
+   * — it is an instruction to pay the buyer by hand. This is the point where the
+   * operator asserts it happened, and only then do the order and the return
+   * advance. Re-confirming is a no-op rather than an error, so a double tap on a
+   * dashboard button cannot move an order to REFUNDED twice.
+   */
+  async confirmRefund(user: AuthenticatedUser, transactionId: string) {
+    const refund = await this.prisma.transaction.findUnique({
+      where: { id: transactionId },
+    });
+
+    if (!refund) {
+      throw new NotFoundException('Refund transaction not found');
+    }
+
+    if (refund.type !== TransactionType.REFUND) {
+      throw new BadRequestException('That transaction is not a refund');
+    }
+
+    if (refund.status === TransactionStatus.COMPLETED) {
+      return { refund, alreadyConfirmed: true, order: null };
+    }
+
+    if (refund.status !== TransactionStatus.PENDING) {
+      throw new BadRequestException(
+        `A ${refund.status} refund cannot be confirmed`,
+      );
+    }
+
+    const payment = refund.orderId
+      ? await this.prisma.transaction.findFirst({
+          where: {
+            orderId: refund.orderId,
+            type: TransactionType.PAYMENT,
+            status: TransactionStatus.COMPLETED,
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const confirmed = await tx.transaction.update({
+        where: { id: refund.id },
+        data: {
+          status: TransactionStatus.COMPLETED,
+          completedAt: new Date(),
+          note: refund.note
+            ? `${refund.note} (confirmed by ${user.id})`
+            : `Manual refund confirmed by ${user.id}`,
+        },
+      });
+
+      let order: Order | null = null;
+
+      if (refund.orderId && payment) {
+        // Only now does the money count: the order's payment status is derived
+        // from COMPLETED refunds, so it is correct at exactly one moment.
+        const totals = await tx.transaction.aggregate({
+          where: {
+            orderId: refund.orderId,
+            type: TransactionType.REFUND,
+            status: TransactionStatus.COMPLETED,
+          },
+          _sum: { amount: true },
+        });
+
+        const fullyRefunded = (totals._sum.amount ?? new Prisma.Decimal(0)).gte(
+          new Prisma.Decimal(payment.amount),
+        );
+
+        const current = await tx.order.findUnique({
+          where: { id: refund.orderId },
+        });
+
+        order = await tx.order.update({
+          where: { id: refund.orderId },
+          data: {
+            paymentStatus: fullyRefunded
+              ? PaymentStatus.REFUNDED
+              : PaymentStatus.PARTIALLY_REFUNDED,
+          },
+        });
+
+        await tx.orderStatusHistory.create({
+          data: {
+            orderId: refund.orderId,
+            fromStatus: current?.status,
+            toStatus: current?.status ?? OrderStatus.DELIVERED,
+            note: `Refund confirmed: ${confirmed.amount}`,
+            changedById: user.id,
+          },
+        });
+      }
+
+      return { refund: confirmed, alreadyConfirmed: false, order };
+    });
+  }
+
   private providerFor(gateway: PaymentGateway): PaymentGatewayContract {
     switch (gateway) {
       case PaymentGateway.BKASH:

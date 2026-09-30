@@ -11,7 +11,10 @@ describe('vendor wallet', () => {
   let prisma: {
     vendor: { findUnique: ReturnType<typeof vi.fn> };
     order: { findMany: ReturnType<typeof vi.fn> };
-    transaction: { groupBy: ReturnType<typeof vi.fn> };
+    transaction: {
+      groupBy: ReturnType<typeof vi.fn>;
+      aggregate: ReturnType<typeof vi.fn>;
+    };
     transactionOrder: { findMany: ReturnType<typeof vi.fn> };
   };
   let service: VendorAnalyticsService;
@@ -34,7 +37,10 @@ describe('vendor wallet', () => {
         }),
       },
       order: { findMany: vi.fn() },
-      transaction: { groupBy: vi.fn().mockResolvedValue([]) },
+      transaction: {
+        groupBy: vi.fn().mockResolvedValue([]),
+        aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }),
+      },
       transactionOrder: { findMany: vi.fn().mockResolvedValue([]) },
     };
 
@@ -172,6 +178,54 @@ describe('vendor wallet', () => {
     const wallet = await service.wallet(vendorUser);
     expect(wallet.pendingBalance).toMatch(/^\d+\.\d{2}$/);
   });
+
+  it('nets outstanding refund debts off the available balance', async () => {
+    pending([]);
+    delivered([{ id: 'o1', vendorEarning: dec('450.00') }]);
+    prisma.transaction.aggregate.mockResolvedValue({
+      _sum: { amount: dec('120.00') },
+    });
+
+    const wallet = await service.wallet(vendorUser);
+
+    // A refund on an already-paid order is money the platform owes back, so it
+    // must reduce what the next payout can draw on — not sit in a bucket the
+    // vendor has to remember to subtract.
+    expect(wallet.availableBalance).toBe('330.00');
+    expect(wallet.availableBalanceGross).toBe('450.00');
+    expect(wallet.outstandingAdjustment).toBe('120.00');
+  });
+
+  it('never reports a negative available balance', async () => {
+    pending([]);
+    delivered([{ id: 'o1', vendorEarning: dec('50.00') }]);
+    prisma.transaction.aggregate.mockResolvedValue({
+      _sum: { amount: dec('120.00') },
+    });
+
+    const wallet = await service.wallet(vendorUser);
+
+    expect(wallet.availableBalance).toBe('0.00');
+    expect(wallet.outstandingAdjustment).toBe('120.00');
+  });
+
+  it('ignores debts a later payout already absorbed', async () => {
+    pending([]);
+    delivered([{ id: 'o1', vendorEarning: dec('450.00') }]);
+    // The query that produces this is filtered on `offsetByPayout: null`, so a
+    // settled debt simply is not in the result set.
+    prisma.transaction.aggregate.mockResolvedValue({ _sum: { amount: null } });
+
+    const wallet = await service.wallet(vendorUser);
+
+    expect(prisma.transaction.aggregate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ offsetByPayout: null }),
+      }),
+    );
+    expect(wallet.availableBalance).toBe('450.00');
+    expect(wallet.outstandingAdjustment).toBe('0.00');
+  });
 });
 
 describe('vendor analytics', () => {
@@ -179,7 +233,10 @@ describe('vendor analytics', () => {
     order: { findMany: ReturnType<typeof vi.fn> };
     productVariant: { findMany: ReturnType<typeof vi.fn> };
     vendor: { findUnique: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
-    transaction: { groupBy: ReturnType<typeof vi.fn> };
+    transaction: {
+      groupBy: ReturnType<typeof vi.fn>;
+      aggregate: ReturnType<typeof vi.fn>;
+    };
     transactionOrder: { findMany: ReturnType<typeof vi.fn> };
     user: { count: ReturnType<typeof vi.fn> };
   };
@@ -200,7 +257,10 @@ describe('vendor analytics', () => {
         findUnique: vi.fn().mockResolvedValue({ id: 'vendor-1', commissionRate: dec('10') }),
         findMany: vi.fn().mockResolvedValue([]),
       },
-      transaction: { groupBy: vi.fn().mockResolvedValue([]) },
+      transaction: {
+        groupBy: vi.fn().mockResolvedValue([]),
+        aggregate: vi.fn().mockResolvedValue({ _sum: { amount: null } }),
+      },
       transactionOrder: { findMany: vi.fn().mockResolvedValue([]) },
       user: { count: vi.fn().mockResolvedValue(0) },
     };

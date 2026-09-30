@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
 } from '@nestjs/common';
@@ -88,6 +89,23 @@ export class PaymentsController {
       note: refundOrderDto.note,
       gateway: refundOrderDto.gateway,
     });
+  }
+
+  /**
+   * Confirms a hand-paid refund, i.e. one issued against a COD order where no
+   * gateway moved money. The refund row is born PENDING precisely because the
+   * payout has not happened yet; this is the operator asserting it did.
+   */
+  @Patch('refunds/:transactionId/confirm')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @RequirePermissions('payments:refund')
+  @ApiOperation({ summary: 'Confirm a manual (COD) refund payout' })
+  @ApiResponse({ status: 200, description: 'Refund marked COMPLETED' })
+  confirmRefund(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('transactionId') transactionId: string,
+  ) {
+    return this.paymentsService.confirmRefund(user, transactionId);
   }
 
   @Get()

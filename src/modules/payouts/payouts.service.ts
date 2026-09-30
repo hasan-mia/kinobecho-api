@@ -117,13 +117,45 @@ export class PayoutsService {
       );
     }
 
-    const amount = orders.reduce(
+    const grossEarning = orders.reduce(
       (sum, order) =>
         order.vendorEarning === null
           ? sum
           : sum.add(new Prisma.Decimal(order.vendorEarning)),
       new Prisma.Decimal(0),
     ).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+    // Refunds issued after these orders were already paid leave the platform
+    // owing the vendor money, recorded as a negative ADJUSTMENT. It is netted off
+    // here so the vendor is made whole on the *next* payout rather than being
+    // silently underpaid — and marked as offset in the same transaction, so a
+    // later refund cannot have it deducted a second time.
+    const outstandingAdjustments = await this.prisma.transaction.findMany({
+      where: {
+        vendorId: vendor.id,
+        type: TransactionType.ADJUSTMENT,
+        status: TransactionStatus.COMPLETED,
+        offsetByPayout: null,
+      },
+      select: { id: true, amount: true },
+    });
+
+    const adjustmentTotal = outstandingAdjustments.reduce(
+      (sum, row) => sum.add(new Prisma.Decimal(row.amount)),
+      new Prisma.Decimal(0),
+    ).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+    const amount = grossEarning
+      .minus(adjustmentTotal)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+    if (amount.lte(0)) {
+      throw new BadRequestException(
+        'Nothing to pay out: outstanding refund deductions ' +
+          `(${adjustmentTotal.toFixed(2)} BDT) cover the selected orders' ` +
+          `earnings (${grossEarning.toFixed(2)} BDT)`,
+      );
+    }
 
     const payout = await this.prisma.$transaction(async (tx) => {
       const transaction = await tx.transaction.create({
@@ -147,11 +179,32 @@ export class PayoutsService {
         include: PAYOUT_TRANSACTION_INCLUDE,
       });
 
+      // Claimed in the same transaction that created the payout: if this
+      // commits, the debts are settled; if it rolls back, they stay outstanding
+      // and the wallet still shows them. `createMany` is skipped on error rather
+      // than aborting, so a concurrent payout that claimed the same adjustment
+      // first cannot fail this request — the unique constraint on adjustmentId
+      // is the real guard against double-deducting.
+      for (const adjustment of outstandingAdjustments) {
+        await tx.payoutAdjustment.createMany({
+          data: {
+            payoutId: transaction.id,
+            adjustmentId: adjustment.id,
+            amount: adjustment.amount,
+          },
+          skipDuplicates: true,
+        });
+      }
+
       return transaction;
     });
 
     this.logger.log(
-      `Payout ${payout.id} created for vendor ${vendor.id} (${amount} BDT)`,
+      `Payout ${payout.id} created for vendor ${vendor.id} (${amount} BDT` +
+        (adjustmentTotal.gt(0)
+          ? `, net of ${adjustmentTotal.toFixed(2)} BDT refund deductions`
+          : '') +
+        ')',
     );
 
     return payout;
@@ -205,14 +258,27 @@ export class PayoutsService {
       );
     }
 
-    return this.prisma.transaction.update({
-      where: { id: payout.id },
-      data: {
-        status: TransactionStatus.FAILED,
-        note: `${payout.note ?? ''} | Rejected: ${note}`.trim(),
-      },
-      include: PAYOUT_TRANSACTION_INCLUDE,
+    // A rejected payout never sent the money, so the refund deductions it was
+    // netted against have not been applied either. Releasing them puts the debt
+    // back in the wallet so the next attempt can carry it.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const rejected = await tx.transaction.update({
+        where: { id: payout.id },
+        data: {
+          status: TransactionStatus.FAILED,
+          note: `${payout.note ?? ''} | Rejected: ${note}`.trim(),
+        },
+        include: PAYOUT_TRANSACTION_INCLUDE,
+      });
+
+      // Deleting the offsets is what "releases" the debts: the ADJUSTMENT rows
+      // themselves are immutable ledger entries and are never deleted.
+      await tx.payoutAdjustment.deleteMany({ where: { payoutId: payout.id } });
+
+      return rejected;
     });
+
+    return updated;
   }
 
   private async requirePayout(transactionId: string) {

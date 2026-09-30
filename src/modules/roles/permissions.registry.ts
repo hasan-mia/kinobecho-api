@@ -51,6 +51,10 @@ export const PERMISSIONS = [
   { key: 'shipping:manage', description: 'Manage shipping zones and rates' },
   { key: 'shipment:create', description: 'Create and update shipments' },
 
+  // Returns
+  { key: 'return:read', description: 'Read every return request platform-wide' },
+  { key: 'return:refund', description: 'Issue refunds for return requests' },
+
   // Analytics
   { key: 'analytics:read', description: 'Read platform-wide analytics' },
 ] as const;
