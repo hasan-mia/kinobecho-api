@@ -153,7 +153,13 @@ describe('Social sign-in — new user creation', () => {
     });
   });
 
-  it('stores a password that no guess can satisfy', async () => {
+  // Argon2 is deliberately slow and deliberately memory-hungry: at the default
+  // parameters each hash or verify allocates ~64 MiB. This test does seven of
+  // them back to back, and vitest runs spec files in parallel, so the 5s
+  // default timeout is a coin flip on a loaded machine rather than a measure of
+  // anything. The budget below reflects the real cost; weakening the assertions
+  // to fit the default would throw away what this test is actually for.
+  it('stores a password that no guess can satisfy', { timeout: 30_000 }, async () => {
     const { service, prisma, google } = build();
     google.verify = vi.fn().mockResolvedValue(identity());
     prisma.user.create.mockResolvedValue(user({ id: 'u-new' }));

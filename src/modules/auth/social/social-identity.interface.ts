@@ -1,4 +1,4 @@
-export type SocialProvider = 'GOOGLE' | 'FACEBOOK';
+import { SocialProvider } from '@prisma/client';
 
 /**
  * A provider identity, normalised across Google and Facebook.
